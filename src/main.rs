@@ -139,10 +139,11 @@ struct OpenClawProfile {
 struct ProxyServer {
     client: Client,
     auth_data: AuthData,
+    upstream_base_url: String,
 }
 
 impl ProxyServer {
-    async fn new(auth_path: &str) -> Result<Self> {
+    async fn new(auth_path: &str, upstream_base_url: &str) -> Result<Self> {
         let auth_path = if auth_path.starts_with("~/") {
             let home = std::env::var("HOME").context("HOME environment variable not set")?;
             auth_path.replace("~", &home)
@@ -269,7 +270,7 @@ impl ProxyServer {
         // Build request to ChatGPT backend with browser-like headers
         let mut request_builder = self
             .client
-            .post("https://chatgpt.com/backend-api/codex/responses")
+            .post(format!("{}/codex/responses", self.upstream_base_url.trim_end_matches('/')))
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
             .header("OpenAI-Beta", "responses=experimental")

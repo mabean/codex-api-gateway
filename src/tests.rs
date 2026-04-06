@@ -64,7 +64,7 @@ async fn rejects_file_without_usable_credentials() {
     let file = NamedTempFile::new().unwrap();
     fs::write(file.path(), r#"{"tokens": {}}"#).unwrap();
 
-    let result = ProxyServer::new(file.path().to_str().unwrap()).await;
+    let result = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test").await;
     assert!(result.is_err());
     let err = result.err().unwrap();
     let msg = err.to_string();
