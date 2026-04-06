@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
-mod improved_response;
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -308,23 +309,27 @@ impl ProxyServer {
             );
         }
 
-        // Handle streaming response
+        // Handle SSE response from Codex backend.
+        // Prefer streaming deltas when present; fall back to final item text only if no deltas were received.
         let mut response_content = String::new();
+        let mut final_item_content = String::new();
+        let mut saw_delta = false;
         let response_text = response.text().await?;
         let lines: Vec<&str> = response_text.lines().collect();
-        
+
         for line in lines {
             if line.starts_with("data: ") {
-                let json_data = &line[6..]; // Remove "data: " prefix
+                let json_data = &line[6..];
                 if json_data == "[DONE]" {
                     break;
                 }
-                
+
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(json_data) {
                     if let Some(event_type) = event.get("type").and_then(|v| v.as_str()) {
                         match event_type {
                             "response.output_text.delta" => {
                                 if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
+                                    saw_delta = true;
                                     response_content.push_str(delta);
                                 }
                             }
@@ -333,17 +338,21 @@ impl ProxyServer {
                                     if let Some(content_arr) = item.get("content").and_then(|v| v.as_array()) {
                                         for content_item in content_arr {
                                             if let Some(text) = content_item.get("text").and_then(|v| v.as_str()) {
-                                                response_content.push_str(text);
+                                                final_item_content.push_str(text);
                                             }
                                         }
                                     }
                                 }
                             }
-                            _ => {} // Ignore other event types
+                            _ => {}
                         }
                     }
                 }
             }
+        }
+
+        if !saw_delta && !final_item_content.is_empty() {
+            response_content = final_item_content;
         }
 
         if response_content.is_empty() {
@@ -392,47 +401,17 @@ fn extract_account_id_from_jwt(token: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-// Enhanced logging function
 fn log_request(method: &warp::http::Method, path: &str, headers: &warp::http::HeaderMap) {
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f UTC");
-    
-    println!("\n🔍 === INTERCEPTED REQUEST ===");
-    println!("⏰ Timestamp: {}", timestamp);
-    println!("📥 Method: {}", method);
-    println!("📍 Path: {}", path);
-    
-    // Log all headers with special attention to problematic ones
-    println!("\n📋 Headers ({} total):", headers.len());
-    for (name, value) in headers.iter() {
-        let header_name = name.as_str().to_lowercase();
-        let value_str = match value.to_str() {
-            Ok(v) => v,
-            Err(_) => "[INVALID UTF-8]"
-        };
-        
-        // Highlight potential CLINE-specific headers
-        if header_name.contains("user-agent") || header_name.contains("client") || header_name.contains("cline") {
-            println!("  🎯 {}: {}", name, value_str);
-        } else if header_name == "authorization" {
-            println!("  🔐 {}: {}***", name, &value_str[..std::cmp::min(20, value_str.len())]);
-        } else {
-            println!("  📄 {}: {}", name, value_str);
-        }
-    }
-    
-    // Check for VS Code specific patterns
-    let user_agent = headers.get("user-agent")
+    let auth_present = headers.get("authorization").is_some();
+    let ua = headers
+        .get("user-agent")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("none");
-    
-    if user_agent.to_lowercase().contains("vscode") {
-        println!("🎯 DETECTED: VS Code client!");
-    }
-    if user_agent.to_lowercase().contains("cline") {
-        println!("🎯 DETECTED: CLINE extension!");
-    }
-    
-    println!("🔍 === END INTERCEPT ===\n");
+        .unwrap_or("unknown");
+
+    println!(
+        "[request] method={} path={} auth_present={} user_agent={}",
+        method, path, auth_present, ua
+    );
 }
 
 // Removed catch_all_handler - using inline closure to avoid body consumption conflicts
