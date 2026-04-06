@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use clap::Parser;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use warp::{Filter, Reply};
-use reqwest::Client;
 use uuid::Uuid;
+use warp::{Filter, Reply};
 
 mod improved_response;
 
@@ -25,11 +27,8 @@ struct Args {
 struct ChatCompletionsRequest {
     model: String,
     messages: Vec<ChatMessage>,
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
     stream: Option<bool>,
     tools: Option<Vec<Value>>,
-    tool_choice: Option<Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -101,39 +100,39 @@ enum ContentItem {
     InputText { text: String },
 }
 
-/// Codex auth.json structure
-#[derive(Deserialize, Debug, Clone)]
+/// Minimal auth material required by the proxy.
+#[derive(Debug, Clone)]
 struct AuthData {
+    api_key: Option<String>,
+    access_token: Option<String>,
+    account_id: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct LegacyAuthFile {
     #[serde(rename = "OPENAI_API_KEY")]
     api_key: Option<String>,
-    tokens: Option<TokenData>,
+    tokens: Option<LegacyTokenData>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct TokenData {
+#[derive(Deserialize, Debug)]
+struct LegacyTokenData {
     access_token: String,
     account_id: String,
-    refresh_token: Option<String>,
-}
-
-/// Codex Responses API response format
-#[derive(Deserialize, Debug)]
-struct ResponsesApiResponse {
-    response: Option<ResponseOutput>,
-    id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
-struct ResponseOutput {
-    content: Option<Vec<ResponseContentItem>>,
-    role: Option<String>,
+struct OpenClawAuthProfiles {
+    profiles: Option<std::collections::HashMap<String, OpenClawProfile>>,
+    #[serde(rename = "lastGood")]
+    last_good: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Debug)]
-struct ResponseContentItem {
+struct OpenClawProfile {
     #[serde(rename = "type")]
-    content_type: String,
-    text: Option<String>,
+    profile_type: Option<String>,
+    access: Option<String>,
 }
 
 struct ProxyServer {
@@ -152,10 +151,14 @@ impl ProxyServer {
 
         let auth_content = tokio::fs::read_to_string(&auth_path)
             .await
-            .context("Failed to read auth.json")?;
+            .with_context(|| format!("Failed to read auth file: {}", auth_path))?;
 
-        let auth_data: AuthData = serde_json::from_str(&auth_content)
-            .context("Failed to parse auth.json")?;
+        let auth_data = Self::parse_auth_data(&auth_content)
+            .with_context(|| format!("Failed to parse supported auth file format: {}", auth_path))?;
+
+        if auth_data.api_key.is_none() && auth_data.access_token.is_none() {
+            anyhow::bail!("auth file did not contain a usable API key or OAuth access token")
+        }
 
         // Create client with browser-like configuration
         let client = Client::builder()
@@ -167,6 +170,44 @@ impl ProxyServer {
             client,
             auth_data,
         })
+    }
+
+    fn parse_auth_data(raw: &str) -> Result<AuthData> {
+        if let Ok(legacy) = serde_json::from_str::<LegacyAuthFile>(raw) {
+            let access_token = legacy.tokens.as_ref().map(|t| t.access_token.clone());
+            let account_id = legacy.tokens.as_ref().map(|t| t.account_id.clone());
+            if legacy.api_key.is_some() || access_token.is_some() {
+                return Ok(AuthData {
+                    api_key: legacy.api_key,
+                    access_token,
+                    account_id,
+                });
+            }
+        }
+
+        if let Ok(openclaw) = serde_json::from_str::<OpenClawAuthProfiles>(raw) {
+            if let (Some(profiles), Some(last_good)) = (openclaw.profiles, openclaw.last_good) {
+                if let Some(profile_id) = last_good.get("openai-codex") {
+                    if let Some(profile) = profiles.get(profile_id) {
+                        if profile.profile_type.as_deref() == Some("oauth") {
+                            let access_token = profile.access.clone();
+                            let account_id = access_token
+                                .as_ref()
+                                .and_then(|t| extract_account_id_from_jwt(t));
+                            if access_token.is_some() {
+                                return Ok(AuthData {
+                                    api_key: None,
+                                    access_token,
+                                    account_id,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!("unsupported auth file format")
     }
 
     fn convert_chat_to_responses(&self, chat_req: ChatCompletionsRequest) -> ResponsesApiRequest {
@@ -229,25 +270,20 @@ impl ProxyServer {
             .post("https://chatgpt.com/backend-api/codex/responses")
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Accept-Encoding", "gzip, deflate, br")
-            .header("Referer", "https://chatgpt.com/")
-            .header("Origin", "https://chatgpt.com")
-            .header("Sec-Fetch-Dest", "empty")
-            .header("Sec-Fetch-Mode", "cors")
-            .header("Sec-Fetch-Site", "same-origin")
-            .header("Cache-Control", "no-cache")
-            .header("Pragma", "no-cache")
-            .header("DNT", "1")
             .header("OpenAI-Beta", "responses=experimental")
-            .header("originator", "codex_cli_rs");
+            .header("originator", "pi")
+            .header("User-Agent", "codex-openai-proxy/0.1 local-hardening");
 
         // Add authentication
-        if let Some(tokens) = &self.auth_data.tokens {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", tokens.access_token));
-            request_builder = request_builder.header("chatgpt-account-id", &tokens.account_id);
+        if let Some(access_token) = &self.auth_data.access_token {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", access_token));
+            if let Some(account_id) = &self.auth_data.account_id {
+                request_builder = request_builder.header("chatgpt-account-id", account_id);
+            }
         } else if let Some(api_key) = &self.auth_data.api_key {
             request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        } else {
+            anyhow::bail!("no usable auth material found")
         }
 
         // Add session ID
@@ -310,9 +346,8 @@ impl ProxyServer {
             }
         }
 
-        // If no content was collected, use a default message
         if response_content.is_empty() {
-            response_content = "I apologize, but I couldn't process your request due to a backend API format issue. The proxy is receiving your request correctly but needs format refinement.".to_string();
+            anyhow::bail!("upstream returned success but no parsable response content")
         }
 
         // Create Chat Completions response
@@ -338,6 +373,23 @@ impl ProxyServer {
         
         Ok(chat_res)
     }
+}
+
+fn extract_account_id_from_jwt(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let normalized = payload.replace('-', "+").replace('_', "/");
+    let padded = match normalized.len() % 4 {
+        2 => format!("{}==", normalized),
+        3 => format!("{}=", normalized),
+        _ => normalized,
+    };
+    let decoded = URL_SAFE_NO_PAD.decode(padded.as_bytes()).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    value
+        .get("https://api.openai.com/auth")
+        .and_then(|v| v.get("chatgpt_account_id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 // Enhanced logging function
@@ -394,6 +446,24 @@ async fn main() -> Result<()> {
     
     let proxy = ProxyServer::new(&args.auth_path).await?;
     println!("✓ Loaded authentication from {}", args.auth_path);
+    println!(
+        "✓ Auth mode: {}",
+        if proxy.auth_data.access_token.is_some() {
+            "oauth/codex"
+        } else if proxy.auth_data.api_key.is_some() {
+            "api-key"
+        } else {
+            "unknown"
+        }
+    );
+    println!(
+        "✓ Account id: {}",
+        if proxy.auth_data.account_id.is_some() {
+            "present"
+        } else {
+            "missing"
+        }
+    );
 
     // Health check endpoint (removed unused variable warning)
     let _health = warp::path("health")
