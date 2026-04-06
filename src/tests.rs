@@ -60,6 +60,13 @@ async fn parses_openclaw_auth_profiles_file() {
 }
 
 #[tokio::test]
+async fn extracts_account_id_from_openclaw_style_jwt() {
+    let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjX2p3dCJ9fQ.signature";
+    let account_id = crate::extract_account_id_from_jwt(jwt);
+    assert_eq!(account_id.as_deref(), Some("acc_jwt"));
+}
+
+#[tokio::test]
 async fn rejects_file_without_usable_credentials() {
     let file = NamedTempFile::new().unwrap();
     fs::write(file.path(), r#"{"tokens": {}}"#).unwrap();

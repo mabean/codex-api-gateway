@@ -33,7 +33,8 @@ This fork is currently in **audit and hardening mode**.
 
 Important:
 - the codebase is still being aligned with the real upstream contract
-- the primary request path is being switched from a development stub to the real backend path
+- the primary request path now uses the real backend path instead of a fake success stub
+- health/readiness reporting is more honest about config vs upstream verification
 - security-sensitive deployment patterns must be treated as advanced/unsafe until explicitly documented
 - maturity claims should be interpreted conservatively until the hardening checklist is complete
 
@@ -203,6 +204,7 @@ See:
 - Treat OAuth/auth files as secrets.
 - Do not expose the proxy publicly during the hardening phase.
 - Do not assume successful health checks mean the upstream transport is fully validated.
+- `config_ready` / `auth_material_present` are not the same thing as proven upstream auth validity.
 - Prefer local testing until the hardening plan is complete.
 
 ## Troubleshooting

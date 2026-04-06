@@ -621,6 +621,7 @@ impl Clone for ProxyServer {
         Self {
             client: self.client.clone(),
             auth_data: self.auth_data.clone(),
+            upstream_base_url: self.upstream_base_url.clone(),
         }
     }
 }
