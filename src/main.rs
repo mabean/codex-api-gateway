@@ -313,7 +313,7 @@ impl ProxyServer {
             anyhow::bail!("auth file did not contain a usable API key or OAuth access token")
         }
         let client = Client::builder()
-            .user_agent("pi (codex-openai-proxy)")
+            .user_agent("pi (codex-api-gateway)")
             .build()
             .context("Failed to create HTTP client")?;
         Ok(Self {
@@ -456,7 +456,7 @@ impl ProxyServer {
             .header("Accept", "text/event-stream")
             .header("OpenAI-Beta", "responses=experimental")
             .header("originator", "pi")
-            .header("User-Agent", "pi (codex-openai-proxy)");
+            .header("User-Agent", "pi (codex-api-gateway)");
         if let Some(access_token) = &self.auth_data.access_token {
             request_builder =
                 request_builder.header("Authorization", format!("Bearer {}", access_token));
@@ -798,7 +798,7 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     let proxy = ProxyServer::new(&args.auth_path, &args.upstream_base_url).await?;
-    println!("Initializing Codex OpenAI Proxy...");
+    println!("Initializing Codex API Gateway...");
     println!("✓ Loaded authentication from {}", args.auth_path);
     println!(
         "✓ Auth mode: {}",
@@ -848,7 +848,7 @@ async fn main() -> Result<()> {
         .and_then(universal_request_handler);
     let routes = universal_handler.with(cors).with(warp::log("codex_proxy"));
     println!(
-        "🚀 Codex OpenAI Proxy listening on http://127.0.0.1:{}",
+        "🚀 Codex API Gateway listening on http://127.0.0.1:{}",
         args.port
     );
     println!("   Health check: http://127.0.0.1:{}/health", args.port);
@@ -875,7 +875,7 @@ async fn universal_request_handler(
     let path_str = path.as_str();
     log_request(&method, path_str, &headers);
     let response = match (method.as_str(), path_str) {
-        ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-openai-proxy"})).into_response(),
+        ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response(),
         ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[{"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"}]})).into_response(),
         ("POST", "/v1/chat/completions") => {
             let chat_req = match serde_json::from_slice::<ChatCompletionsRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };

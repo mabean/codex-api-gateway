@@ -1,4 +1,4 @@
-# Codex OpenAI Proxy
+# Codex API Gateway
 
 > **Status:** prototype under hardening
 >
@@ -6,7 +6,7 @@
 >
 > **Current reality:** this fork is under active audit/hardening and should not yet be treated as a production-grade token-handling proxy.
 
-A proxy server that allows OpenAI-compatible and Anthropic-compatible clients to use ChatGPT/Codex authentication instead of requiring separate provider API keys.
+A local-first API gateway that exposes OpenAI-compatible and Anthropic-compatible clients over the ChatGPT/Codex upstream, suitable for ChatGPT Plus and higher plans that support the Codex path.
 
 ## Trust signals
 
@@ -16,7 +16,7 @@ A proxy server that allows OpenAI-compatible and Anthropic-compatible clients to
 - **Telemetry:** none intended
 - **Security docs:** `SECURITY.md`, `THREAT_MODEL.md`, `BUILD.md`
 - **Verification baseline:** `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo build`
-- **Ingress surfaces:** OpenAI-compatible `/v1/chat/completions`, Anthropic-compatible `/v1/messages` (current non-streaming baseline)
+- **Ingress surfaces:** OpenAI-compatible `/v1/chat/completions`, Anthropic-compatible `/v1/messages`, both with streaming support
 - **Secrets posture:** local auth material only; auth files must not be committed or publicly exposed
 
 This is a trust-boundary and auditability signal, not a claim of production readiness.
@@ -43,6 +43,10 @@ This proxy bridges the gap between:
 
 ## Current status
 
+Subscription note:
+- this gateway is intended for ChatGPT plans that can access the Codex/ChatGPT upstream path, such as ChatGPT Plus and above
+- it does not convert a basic API key into Codex access if the upstream account itself does not have that path available
+
 This fork is currently in **audit and hardening mode**.
 
 Important:
@@ -56,7 +60,7 @@ Important:
 
 Current:
 - OpenAI-compatible `/v1/chat/completions` ingress
-- Anthropic-compatible `/v1/messages` ingress (non-streaming baseline)
+- Anthropic-compatible `/v1/messages` ingress with streaming support
 - Structured validation and error envelopes for both API families
 - Local auth file loading
 - Message/content conversion baseline
@@ -64,7 +68,7 @@ Current:
 
 Target:
 - Fully validated ChatGPT/Codex-backed upstream transport
-- Verified streaming support
+- Verified streaming support for both compatibility surfaces
 - Hardened auth handling
 - Auditable local-only deployment defaults
 
@@ -73,16 +77,16 @@ Target:
 ### 1. Build and Run (local-only)
 
 ```bash
-git clone https://github.com/mabean/codex-openai-proxy.git
-cd codex-openai-proxy
+git clone https://github.com/mabean/codex-api-gateway.git
+cd codex-api-gateway
 cargo build --release
-./target/release/codex-openai-proxy --port 8080 --auth-path ~/.codex/auth.json
+./target/release/codex-api-gateway --port 8080 --auth-path ~/.codex/auth.json
 ```
 
 Optional:
 
 ```bash
-./target/release/codex-openai-proxy \
+./target/release/codex-api-gateway \
   --port 8080 \
   --auth-path ~/.codex/auth.json \
   --upstream-base-url https://chatgpt.com/backend-api
@@ -187,7 +191,7 @@ Anthropic-compatible path:
 ### Command Line Options
 
 ```bash
-codex-openai-proxy [OPTIONS]
+codex-api-gateway [OPTIONS]
 
 Options:
   -p, --port <PORT>                    Port to listen on [default: 8080]
@@ -229,7 +233,6 @@ The proxy supports:
 
 The proxy now distinguishes:
 - request validation errors
-- unsupported features (for example streaming on hardened path)
 - auth/config errors
 - upstream authorization failures
 - upstream availability/protocol failures
@@ -265,7 +268,7 @@ See:
 
 - This fork is still under hardening and protocol verification.
 - OAuth/Codex backend behavior is still being validated against the real upstream contract.
-- Anthropic-compatible ingress currently supports only a basic non-streaming `/v1/messages` path.
+- Anthropic-compatible ingress is implemented with streaming, but broader Claude/Anthropic protocol parity is still intentionally limited.
 - Usage/token accounting is currently placeholder-level on the compatibility surface.
 - Public deployment guidance is intentionally omitted for now.
 

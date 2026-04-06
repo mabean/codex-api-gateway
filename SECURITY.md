@@ -3,7 +3,7 @@
 ## Security posture
 This project is a local-first proxy for Codex/ChatGPT OAuth-backed access with:
 - an OpenAI-compatible ingress surface
-- an Anthropic-compatible ingress surface (current non-streaming baseline)
+- an Anthropic-compatible ingress surface with streaming support
 
 Current security goals:
 - localhost-only bind by default
