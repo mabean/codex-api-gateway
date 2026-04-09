@@ -5,7 +5,62 @@ use clap::Parser;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use streaming::{parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse};
+use streaming::{parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse, CanonicalStreamEvent};
+
+fn verbose_tracing_enabled() -> bool {
+    matches!(std::env::var("CODEX_PROXY_VERBOSE").as_deref(), Ok("1") | Ok("true") | Ok("TRUE"))
+}
+
+fn normalize_codex_instructions(raw: &str) -> String {
+    let mut core = Vec::new();
+    let mut in_system = false;
+    let mut in_tools_or_reminders = false;
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed == "# System" {
+            in_system = true;
+            in_tools_or_reminders = false;
+            continue;
+        }
+        if trimmed.starts_with("# Tools") || trimmed.starts_with("# Tool") || trimmed.starts_with("# Reminders") {
+            in_tools_or_reminders = true;
+            continue;
+        }
+        if !in_system || in_tools_or_reminders {
+            continue;
+        }
+        if trimmed.is_empty() {
+            if !core.last().map(|s: &String| s.is_empty()).unwrap_or(false) {
+                core.push(String::new());
+            }
+            continue;
+        }
+        if trimmed.starts_with("IMPORTANT: ")
+            || trimmed.starts_with("- Tool results and user messages may include <system-reminder>")
+            || trimmed.starts_with("- Tools are executed in a user-selected permission mode")
+            || trimmed.starts_with("- All text you output outside of tool use")
+            || trimmed.starts_with("- If you want to call multiple tools")
+            || trimmed.starts_with("- If you do not know the answer")
+        {
+            continue;
+        }
+        core.push(trimmed.to_string());
+    }
+    let normalized = core.join("
+");
+    let normalized = normalized
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("
+");
+    let normalized = normalized.trim().to_string();
+    if normalized.is_empty() {
+        "You are a helpful AI assistant. Provide clear, accurate, and concise responses to user questions and requests.".to_string()
+    } else {
+        normalized
+    }
+}
 use uuid::Uuid;
 use warp::{http::StatusCode, Filter, Reply};
 
@@ -39,6 +94,7 @@ struct AnthropicMessagesRequest {
     system: Option<Value>,
     max_tokens: Option<u32>,
     stream: Option<bool>,
+    tools: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -146,6 +202,28 @@ enum ResponsesInputItem {
         role: String,
         content: Vec<InputContentItem>,
     },
+    AssistantMessage {
+        #[serde(rename = "type")]
+        item_type: String,
+        role: String,
+        content: Vec<AssistantContentItem>,
+        status: String,
+        id: String,
+    },
+    FunctionCall {
+        #[serde(rename = "type")]
+        item_type: String,
+        id: String,
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    FunctionCallOutput {
+        #[serde(rename = "type")]
+        item_type: String,
+        call_id: String,
+        output: String,
+    },
 }
 
 #[derive(Serialize, Debug)]
@@ -153,6 +231,31 @@ enum ResponsesInputItem {
 enum InputContentItem {
     #[serde(rename = "input_text")]
     InputText { text: String },
+}
+
+#[derive(Serialize, Debug)]
+#[serde(tag = "type")]
+enum AssistantContentItem {
+    #[serde(rename = "output_text")]
+    OutputText {
+        text: String,
+        annotations: Vec<Value>,
+    },
+}
+
+#[derive(Debug, Clone)]
+enum NormalizedMessage {
+    UserText(String),
+    AssistantText(String),
+    AssistantToolCall {
+        id: String,
+        name: String,
+        arguments: String,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -377,11 +480,33 @@ impl ProxyServer {
                 content: msg.content,
             });
         }
+        if let Some(tools) = &anthropic_req.tools {
+            eprintln!(
+                "[anthropic-ingress] incoming tools count={} names={:?}",
+                tools.len(),
+                tools
+                    .iter()
+                    .filter_map(|tool| {
+                        tool.get("name")
+                            .and_then(Value::as_str)
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                tool.get("function")
+                                    .and_then(|f| f.get("name"))
+                                    .and_then(Value::as_str)
+                                    .map(|s| s.to_string())
+                            })
+                    })
+                    .collect::<Vec<String>>()
+            );
+        } else {
+            eprintln!("[anthropic-ingress] incoming tools count=0 names=[]");
+        }
         Ok(ChatCompletionsRequest {
             model: anthropic_req.model,
             messages,
             stream: anthropic_req.stream,
-            tools: None,
+            tools: anthropic_req.tools,
         })
     }
 
@@ -393,23 +518,48 @@ impl ProxyServer {
         let mut input = Vec::new();
         let mut system_parts = Vec::new();
         for msg in chat_req.messages {
-            let content_text = flatten_message_content(&msg.content).map_err(|message| {
-                ProxyError::Validation {
-                    message,
-                    field: Some("messages[].content".to_string()),
+            if msg.role == "system" {
+                let content_text = flatten_message_content(&msg.content).map_err(|message| {
+                    ProxyError::Validation {
+                        message,
+                        field: Some("messages[].content".to_string()),
+                    }
+                })?;
+                system_parts.push(content_text);
+                continue;
+            }
+            for normalized in normalize_chat_message(&msg)? {
+                match normalized {
+                    NormalizedMessage::UserText(text) => {
+                        input.push(ResponsesInputItem::UserMessage {
+                            role: "user".to_string(),
+                            content: vec![InputContentItem::InputText { text }],
+                        })
+                    }
+                    NormalizedMessage::AssistantText(_text) => {
+                        // Codex-side normalization experiment: omit prior assistant prose
+                        // from upstream input and keep user/tool history only.
+                    }
+                    NormalizedMessage::AssistantToolCall {
+                        id,
+                        name,
+                        arguments,
+                    } => input.push(ResponsesInputItem::FunctionCall {
+                        item_type: "function_call".to_string(),
+                        id: format!("fc_{}", Uuid::new_v4().simple()),
+                        call_id: id,
+                        name,
+                        arguments,
+                    }),
+                    NormalizedMessage::ToolResult {
+                        tool_use_id,
+                        content,
+                    } => input.push(ResponsesInputItem::FunctionCallOutput {
+                        item_type: "function_call_output".to_string(),
+                        call_id: tool_use_id,
+                        output: content,
+                    }),
                 }
-            })?;
-            match msg.role.as_str() {
-                "system" => system_parts.push(content_text),
-                "user" => input.push(ResponsesInputItem::UserMessage {
-                    role: "user".to_string(),
-                    content: vec![InputContentItem::InputText { text: content_text }],
-                }),
-                "assistant" => {}
-                _ => input.push(ResponsesInputItem::UserMessage {
-                    role: "user".to_string(),
-                    content: vec![InputContentItem::InputText { text: content_text }],
-                }),
             }
         }
         if input.is_empty() {
@@ -419,22 +569,61 @@ impl ProxyServer {
                 field: Some("messages".to_string()),
             });
         }
-        let instructions = if system_parts.is_empty() {
+        let raw_instructions = if system_parts.is_empty() {
             "You are a helpful AI assistant. Provide clear, accurate, and concise responses to user questions and requests.".to_string()
         } else {
             system_parts.join("\n\n")
         };
+        let instructions = normalize_codex_instructions(&raw_instructions);
+        if verbose_tracing_enabled() {
+            eprintln!("[codex-instructions-raw-bytes] {}", raw_instructions.len());
+            eprintln!("[codex-instructions-normalized-bytes] {}", instructions.len());
+            eprintln!("[codex-instructions-normalized-prefix] {}", instructions.chars().take(1200).collect::<String>());
+        }
+        let normalized_tools = normalize_tools_for_codex(chat_req.tools.unwrap_or_default());
+        let tool_debug_summary: Vec<Value> = normalized_tools
+            .iter()
+            .map(|tool| {
+                let required = tool
+                    .get("parameters")
+                    .and_then(|p| p.get("required"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                json!({
+                    "name": tool.get("name").cloned().unwrap_or(Value::Null),
+                    "strict": tool.get("strict").cloned().unwrap_or(Value::Null),
+                    "required": required,
+                    "schema_keys": tool
+                        .get("parameters")
+                        .and_then(Value::as_object)
+                        .map(|o| o.keys().cloned().collect::<Vec<String>>())
+                        .unwrap_or_default()
+                })
+            })
+            .collect();
+        eprintln!(
+            "[responses-request] model={} tools_count={} tool_names={:?} input_items={} instructions_len={}",
+            normalize_codex_model_id(&chat_req.model),
+            normalized_tools.len(),
+            normalized_tools
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(|s| s.to_string()))
+                .collect::<Vec<String>>(),
+            input.len(),
+            instructions.len()
+        );
+        eprintln!("[responses-request-tools] {}", serde_json::to_string(&tool_debug_summary).unwrap_or_else(|_| "[]".to_string()));
         Ok(ResponsesApiRequest {
             model: normalize_codex_model_id(&chat_req.model),
             instructions,
             input,
-            tools: chat_req.tools.unwrap_or_default(),
+            tools: normalized_tools,
             tool_choice: "auto".to_string(),
             parallel_tool_calls: true,
             reasoning: None,
             store: false,
             stream: true,
-            text: json!({"verbosity":"medium","format":{"type":"text"}}),
+            text: json!({"verbosity":"low","format":{"type":"text"}}),
             include: vec!["reasoning.encrypted_content".to_string()],
             prompt_cache_key: Uuid::new_v4().to_string(),
         })
@@ -473,6 +662,10 @@ impl ProxyServer {
         }
         let session_id = Uuid::new_v4();
         request_builder = request_builder.header("session_id", session_id.to_string());
+        let upstream_request_json = serde_json::to_string(&responses_req).unwrap_or_else(|_| "<serialize-failed>".to_string());
+        let upstream_request_prefix: String = upstream_request_json.chars().take(1500).collect();
+        eprintln!("[upstream-request-body-bytes] {}", upstream_request_json.len());
+        eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
         let response = request_builder
             .json(&responses_req)
             .send()
@@ -481,13 +674,29 @@ impl ProxyServer {
                 message: format!("failed to send request to upstream: {}", e),
             })?;
         let status = response.status();
+        let headers = format!("{:?}", response.headers());
         let body = response
             .text()
             .await
-            .map_err(|e| ProxyError::UpstreamProtocol {
-                message: format!("failed to read upstream response body: {}", e),
+            .map_err(|e| {
+                eprintln!("[upstream-read-error] {}", e);
+                eprintln!("[request-outcome] upstream_read_failed");
+                ProxyError::UpstreamProtocol {
+                    message: format!("failed to read upstream response body: {}", e),
+                }
             })?;
+        let body_prefix: String = body.chars().take(1200).collect();
+        eprintln!("[upstream-response-status] {}", status);
+        eprintln!("[upstream-response-headers] {}", headers);
+        eprintln!("[upstream-response-body-bytes] {}", body.len());
+        if !body_prefix.trim().is_empty() {
+            eprintln!("[upstream-response-body-prefix] {}", body_prefix);
+        }
+        if !body.trim().is_empty() {
+            eprintln!("[upstream-response-body] {}", body);
+        }
         if !status.is_success() {
+            eprintln!("[request-outcome] upstream_non_success");
             let message = if body.trim().is_empty() {
                 format!("upstream returned {}", status)
             } else {
@@ -495,6 +704,7 @@ impl ProxyServer {
             };
             return Err(classify_upstream_error(status, message));
         }
+        eprintln!("[request-outcome] upstream_success");
         Ok((model, body))
     }
 
@@ -504,11 +714,54 @@ impl ProxyServer {
         api_family: ApiFamily,
     ) -> Result<(String, String), ProxyError> {
         let (model, sse_text) = self.upstream_sse_text(chat_req).await?;
-        let events = parse_codex_sse_to_events(&sse_text)?;
+        eprintln!("[raw-codex-sse-begin]
+{}
+[raw-codex-sse-end]", sse_text);
+        let events = parse_codex_sse_to_events(&sse_text).map_err(|e| {
+            eprintln!("[codex-parse-error] {}", e.message());
+            eprintln!("[request-outcome] codex_parse_failed");
+            e
+        })?;
+        let mut text_deltas = 0usize;
+        let mut tool_call_starts = 0usize;
+        let mut tool_call_deltas = 0usize;
+        let mut tool_call_dones = 0usize;
+        let mut completed_finish_reason: Option<String> = None;
+        for event in &events {
+            match event {
+                CanonicalStreamEvent::TextDelta { .. } => text_deltas += 1,
+                CanonicalStreamEvent::ToolCallStart { .. } => tool_call_starts += 1,
+                CanonicalStreamEvent::ToolCallDelta { .. } => tool_call_deltas += 1,
+                CanonicalStreamEvent::ToolCallDone { .. } => tool_call_dones += 1,
+                CanonicalStreamEvent::Completed { finish_reason } => {
+                    completed_finish_reason = finish_reason.clone();
+                }
+                _ => {}
+            }
+        }
+        eprintln!(
+            "[codex-events-summary] {}",
+            serde_json::json!({
+                "text_deltas": text_deltas,
+                "tool_call_starts": tool_call_starts,
+                "tool_call_deltas": tool_call_deltas,
+                "tool_call_dones": tool_call_dones,
+                "completed_finish_reason": completed_finish_reason,
+            })
+        );
+        if tool_call_starts > 0 {
+            eprintln!("[tool-path-stage] codex_tool_path_detected");
+        } else {
+            eprintln!("[tool-path-stage] codex_no_tool_path");
+        }
+        eprintln!("[request-outcome] success");
         let rendered = match api_family {
             ApiFamily::OpenAi => render_openai_sse(&events, &model),
             ApiFamily::Anthropic => render_anthropic_sse(&events, &model),
         };
+        if matches!(api_family, ApiFamily::Anthropic) {
+            eprintln!("[raw-anthropic-sse-begin]\n{}\n[raw-anthropic-sse-end]", rendered);
+        }
         Ok((model, rendered))
     }
 
@@ -548,6 +801,285 @@ fn normalize_codex_model_id(model: &str) -> String {
     } else {
         short.to_string()
     }
+}
+
+fn anthropic_text_blocks(content: &Value) -> Vec<String> {
+    match content {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|item| {
+                let obj = item.as_object()?;
+                if obj.get("type").and_then(Value::as_str) == Some("text") {
+                    obj.get("text")
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn anthropic_tool_result_blocks(content: &Value) -> Vec<(String, String)> {
+    match content {
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|item| {
+                let obj = item.as_object()?;
+                if obj.get("type").and_then(Value::as_str) != Some("tool_result") {
+                    return None;
+                }
+                let id = obj.get("tool_use_id").and_then(Value::as_str)?.to_string();
+                let output = match obj.get("content") {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(Value::Array(parts)) => parts
+                        .iter()
+                        .filter_map(|part| {
+                            let pobj = part.as_object()?;
+                            if pobj.get("type").and_then(Value::as_str) == Some("text") {
+                                pobj.get("text")
+                                    .and_then(Value::as_str)
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n"),
+                    Some(other) => other.to_string(),
+                    None => String::new(),
+                };
+                Some((id, output))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_tool_call_id(content: &Value) -> Option<String> {
+    match content {
+        Value::Object(obj) => obj
+            .get("tool_call_id")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string())
+            .or_else(|| obj.get("id").and_then(Value::as_str).map(|s| s.to_string())),
+        _ => None,
+    }
+}
+
+fn extract_tool_output(content: &Value) -> Option<String> {
+    match content {
+        Value::String(s) => Some(s.clone()),
+        Value::Object(obj) => obj
+            .get("content")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string())
+            .or_else(|| {
+                obj.get("output")
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string())
+            }),
+        _ => None,
+    }
+}
+
+fn normalize_chat_message(msg: &ChatMessage) -> Result<Vec<NormalizedMessage>, ProxyError> {
+    match msg.role.as_str() {
+        "system" => Ok(vec![]),
+        "user" => {
+            if let Value::Array(arr) = &msg.content {
+                let mut out = Vec::new();
+                for item in arr {
+                    let Some(obj) = item.as_object() else {
+                        continue;
+                    };
+                    match obj.get("type").and_then(Value::as_str) {
+                        Some("text") => {
+                            if let Some(text) = obj.get("text").and_then(Value::as_str) {
+                                out.push(NormalizedMessage::UserText(text.to_string()));
+                            }
+                        }
+                        Some("tool_result") => {
+                            if let Some(id) = obj.get("tool_use_id").and_then(Value::as_str) {
+                                let content = match obj.get("content") {
+                                    Some(Value::String(s)) => s.clone(),
+                                    Some(Value::Array(parts)) => parts
+                                        .iter()
+                                        .filter_map(|part| {
+                                            let pobj = part.as_object()?;
+                                            if pobj.get("type").and_then(Value::as_str)
+                                                == Some("text")
+                                            {
+                                                pobj.get("text")
+                                                    .and_then(Value::as_str)
+                                                    .map(|s| s.to_string())
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<String>>()
+                                        .join(
+                                            "
+",
+                                        ),
+                                    Some(other) => other.to_string(),
+                                    None => String::new(),
+                                };
+                                out.push(NormalizedMessage::ToolResult {
+                                    tool_use_id: id.to_string(),
+                                    content,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if out.is_empty() {
+                    let text = flatten_message_content(&msg.content).map_err(|message| {
+                        ProxyError::Validation {
+                            message,
+                            field: Some("messages[].content".to_string()),
+                        }
+                    })?;
+                    out.push(NormalizedMessage::UserText(text));
+                }
+                Ok(out)
+            } else {
+                Ok(vec![NormalizedMessage::UserText(
+                    flatten_message_content(&msg.content).map_err(|message| {
+                        ProxyError::Validation {
+                            message,
+                            field: Some("messages[].content".to_string()),
+                        }
+                    })?,
+                )])
+            }
+        }
+        "assistant" => {
+            if let Value::Array(arr) = &msg.content {
+                let mut out = Vec::new();
+                for item in arr {
+                    let Some(obj) = item.as_object() else {
+                        continue;
+                    };
+                    match obj.get("type").and_then(Value::as_str) {
+                        Some("text") => {
+                            if let Some(text) = obj.get("text").and_then(Value::as_str) {
+                                out.push(NormalizedMessage::AssistantText(text.to_string()));
+                            }
+                        }
+                        Some("tool_use") => {
+                            let id = obj
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            let name = obj
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            let arguments = obj
+                                .get("input")
+                                .cloned()
+                                .unwrap_or(Value::Object(Default::default()))
+                                .to_string();
+                            out.push(NormalizedMessage::AssistantToolCall {
+                                id,
+                                name,
+                                arguments,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                if out.is_empty() {
+                    let text = flatten_message_content(&msg.content).map_err(|message| {
+                        ProxyError::Validation {
+                            message,
+                            field: Some("messages[].content".to_string()),
+                        }
+                    })?;
+                    out.push(NormalizedMessage::AssistantText(text));
+                }
+                Ok(out)
+            } else {
+                Ok(vec![NormalizedMessage::AssistantText(
+                    flatten_message_content(&msg.content).map_err(|message| {
+                        ProxyError::Validation {
+                            message,
+                            field: Some("messages[].content".to_string()),
+                        }
+                    })?,
+                )])
+            }
+        }
+        "tool" => Ok(vec![NormalizedMessage::ToolResult {
+            tool_use_id: extract_tool_call_id(&msg.content)
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+            content: extract_tool_output(&msg.content)
+                .unwrap_or_else(|| flatten_message_content(&msg.content).unwrap_or_default()),
+        }]),
+        _ => Ok(vec![NormalizedMessage::UserText(
+            flatten_message_content(&msg.content).map_err(|message| ProxyError::Validation {
+                message,
+                field: Some("messages[].content".to_string()),
+            })?,
+        )]),
+    }
+}
+
+fn normalize_tool_parameters_schema(schema: Value) -> Value {
+    match schema {
+        Value::Null => json!({"type":"object","properties":{}}),
+        other => other,
+    }
+}
+
+fn normalize_tools_for_codex(tools: Vec<Value>) -> Vec<Value> {
+    let allowed_names = ["Edit", "Read", "Write", "Bash"];
+    tools
+        .into_iter()
+        .filter_map(|tool| {
+            let obj = tool.as_object()?;
+            let normalized = if let Some(function) = obj.get("function") {
+                let f = function.as_object()?;
+                json!({
+                    "type": "function",
+                    "name": f.get("name").cloned().unwrap_or(Value::Null),
+                    "description": f.get("description").cloned().unwrap_or(Value::Null),
+                    "parameters": normalize_tool_parameters_schema(
+                        f.get("parameters")
+                            .cloned()
+                            .unwrap_or_else(|| json!({"type":"object","properties":{}}))
+                    ),
+                    "strict": false
+                })
+            } else {
+                json!({
+                    "type": "function",
+                    "name": obj.get("name").cloned().unwrap_or(Value::Null),
+                    "description": obj.get("description").cloned().unwrap_or(Value::Null),
+                    "parameters": normalize_tool_parameters_schema(
+                        obj.get("input_schema")
+                            .cloned()
+                            .or_else(|| obj.get("parameters").cloned())
+                            .unwrap_or_else(|| json!({"type":"object","properties":{}}))
+                    ),
+                    "strict": false
+                })
+            };
+            let name = normalized.get("name").and_then(Value::as_str)?;
+            if allowed_names.contains(&name) {
+                Some(normalized)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn validate_chat_request(req: &ChatCompletionsRequest) -> Result<(), ProxyError> {
