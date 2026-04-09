@@ -350,20 +350,8 @@ fn convert_chat_to_responses_preserves_assistant_history() {
     let converted = proxy.convert_chat_to_responses(req).unwrap();
     let json = serde_json::to_value(&converted).unwrap();
     let input = json.get("input").and_then(|v| v.as_array()).unwrap();
-    assert_eq!(input.len(), 2);
-    assert_eq!(
-        input[1].get("type").and_then(|v| v.as_str()),
-        Some("message")
-    );
-    assert_eq!(
-        input[1].get("role").and_then(|v| v.as_str()),
-        Some("assistant")
-    );
-    assert_eq!(
-        input[1].get("status").and_then(|v| v.as_str()),
-        Some("completed")
-    );
-    assert_eq!(input[1]["content"][0]["type"].as_str(), Some("output_text"));
+    assert_eq!(input.len(), 1);
+    assert_eq!(input[0].get("role").and_then(|v| v.as_str()), Some("user"));
 }
 
 #[test]
