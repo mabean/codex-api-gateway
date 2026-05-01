@@ -402,6 +402,7 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
     out
 }
 
+#[allow(dead_code)]
 fn verbose_tracing_enabled() -> bool {
     matches!(
         std::env::var("CODEX_PROXY_VERBOSE").as_deref(),
@@ -641,20 +642,22 @@ pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> Str
             _ => {}
         }
     }
-    eprintln!(
-        "[anthropic-wire-summary] {}",
-        serde_json::json!({
-            "text_blocks": if text_deltas > 0 { 1 } else { 0 },
-            "tool_use_blocks": tool_call_starts,
-            "input_json_delta_count": tool_call_deltas,
-            "final_stop_reason": final_stop_reason,
-            "message_stop_seen": message_stop_seen,
-        })
-    );
-    if tool_call_starts > 0 {
-        eprintln!("[tool-path-stage] anthropic_tool_use_rendered");
-    } else {
-        eprintln!("[tool-path-stage] anthropic_end_turn_rendered");
+    if crate::verbose_tracing_enabled() {
+        eprintln!(
+            "[anthropic-wire-summary] {}",
+            serde_json::json!({
+                "text_blocks": if text_deltas > 0 { 1 } else { 0 },
+                "tool_use_blocks": tool_call_starts,
+                "input_json_delta_count": tool_call_deltas,
+                "final_stop_reason": final_stop_reason,
+                "message_stop_seen": message_stop_seen,
+            })
+        );
+        if tool_call_starts > 0 {
+            eprintln!("[tool-path-stage] anthropic_tool_use_rendered");
+        } else {
+            eprintln!("[tool-path-stage] anthropic_end_turn_rendered");
+        }
     }
     out
 }

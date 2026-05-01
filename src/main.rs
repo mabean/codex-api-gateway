@@ -9,7 +9,7 @@ use streaming::{
     parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse, CanonicalStreamEvent,
 };
 
-fn verbose_tracing_enabled() -> bool {
+pub(crate) fn verbose_tracing_enabled() -> bool {
     matches!(
         std::env::var("CODEX_PROXY_VERBOSE").as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE")
@@ -97,6 +97,28 @@ struct ChatCompletionsRequest {
     messages: Vec<ChatMessage>,
     stream: Option<bool>,
     tools: Option<Vec<Value>>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct OpenAiResponsesRequest {
+    model: String,
+    input: Option<Value>,
+    instructions: Option<String>,
+    tools: Option<Vec<Value>>,
+    tool_choice: Option<Value>,
+    parallel_tool_calls: Option<bool>,
+    reasoning: Option<Value>,
+    store: Option<bool>,
+    stream: Option<bool>,
+    text: Option<Value>,
+    include: Option<Vec<String>>,
+    prompt_cache_key: Option<String>,
+    previous_response_id: Option<String>,
+    metadata: Option<Value>,
+    truncation: Option<Value>,
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+    user: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -207,6 +229,7 @@ struct ResponsesApiRequest {
     prompt_cache_key: String,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
 enum ResponsesInputItem {
@@ -245,6 +268,7 @@ enum InputContentItem {
     InputText { text: String },
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Debug)]
 #[serde(tag = "type")]
 enum AssistantContentItem {
@@ -401,7 +425,10 @@ struct OpenClawAuthProfiles {
 struct OpenClawProfile {
     #[serde(rename = "type")]
     profile_type: Option<String>,
+    provider: Option<String>,
     access: Option<String>,
+    #[serde(rename = "accountId")]
+    account_id: Option<String>,
 }
 
 struct ProxyServer {
@@ -451,21 +478,33 @@ impl ProxyServer {
             }
         }
         if let Ok(openclaw) = serde_json::from_str::<OpenClawAuthProfiles>(raw) {
-            if let (Some(profiles), Some(last_good)) = (openclaw.profiles, openclaw.last_good) {
-                if let Some(profile_id) = last_good.get("openai-codex") {
-                    if let Some(profile) = profiles.get(profile_id) {
-                        if profile.profile_type.as_deref() == Some("oauth") {
-                            let access_token = profile.access.clone();
-                            let account_id = access_token
+            if let Some(profiles) = openclaw.profiles {
+                let selected_profile = openclaw
+                    .last_good
+                    .as_ref()
+                    .and_then(|last_good| last_good.get("openai-codex"))
+                    .and_then(|profile_id| profiles.get(profile_id))
+                    .or_else(|| {
+                        profiles.values().find(|profile| {
+                            profile.profile_type.as_deref() == Some("oauth")
+                                && profile.provider.as_deref() == Some("openai-codex")
+                        })
+                    });
+
+                if let Some(profile) = selected_profile {
+                    if profile.profile_type.as_deref() == Some("oauth") {
+                        let access_token = profile.access.clone();
+                        let account_id = profile.account_id.clone().or_else(|| {
+                            access_token
                                 .as_ref()
-                                .and_then(|t| extract_account_id_from_jwt(t));
-                            if access_token.is_some() {
-                                return Ok(AuthData {
-                                    api_key: None,
-                                    access_token,
-                                    account_id,
-                                });
-                            }
+                                .and_then(|t| extract_account_id_from_jwt(t))
+                        });
+                        if access_token.is_some() {
+                            return Ok(AuthData {
+                                api_key: None,
+                                access_token,
+                                account_id,
+                            });
                         }
                     }
                 }
@@ -492,27 +531,29 @@ impl ProxyServer {
                 content: msg.content,
             });
         }
-        if let Some(tools) = &anthropic_req.tools {
-            eprintln!(
-                "[anthropic-ingress] incoming tools count={} names={:?}",
-                tools.len(),
-                tools
-                    .iter()
-                    .filter_map(|tool| {
-                        tool.get("name")
-                            .and_then(Value::as_str)
-                            .map(|s| s.to_string())
-                            .or_else(|| {
-                                tool.get("function")
-                                    .and_then(|f| f.get("name"))
-                                    .and_then(Value::as_str)
-                                    .map(|s| s.to_string())
-                            })
-                    })
-                    .collect::<Vec<String>>()
-            );
-        } else {
-            eprintln!("[anthropic-ingress] incoming tools count=0 names=[]");
+        if verbose_tracing_enabled() {
+            if let Some(tools) = &anthropic_req.tools {
+                eprintln!(
+                    "[anthropic-ingress] incoming tools count={} names={:?}",
+                    tools.len(),
+                    tools
+                        .iter()
+                        .filter_map(|tool| {
+                            tool.get("name")
+                                .and_then(Value::as_str)
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    tool.get("function")
+                                        .and_then(|f| f.get("name"))
+                                        .and_then(Value::as_str)
+                                        .map(|s| s.to_string())
+                                })
+                        })
+                        .collect::<Vec<String>>()
+                );
+            } else {
+                eprintln!("[anthropic-ingress] incoming tools count=0 names=[]");
+            }
         }
         Ok(ChatCompletionsRequest {
             model: anthropic_req.model,
@@ -599,41 +640,43 @@ impl ProxyServer {
             );
         }
         let normalized_tools = normalize_tools_for_codex(chat_req.tools.unwrap_or_default());
-        let tool_debug_summary: Vec<Value> = normalized_tools
-            .iter()
-            .map(|tool| {
-                let required = tool
-                    .get("parameters")
-                    .and_then(|p| p.get("required"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                json!({
-                    "name": tool.get("name").cloned().unwrap_or(Value::Null),
-                    "strict": tool.get("strict").cloned().unwrap_or(Value::Null),
-                    "required": required,
-                    "schema_keys": tool
-                        .get("parameters")
-                        .and_then(Value::as_object)
-                        .map(|o| o.keys().cloned().collect::<Vec<String>>())
-                        .unwrap_or_default()
-                })
-            })
-            .collect();
-        eprintln!(
-            "[responses-request] model={} tools_count={} tool_names={:?} input_items={} instructions_len={}",
-            normalize_codex_model_id(&chat_req.model),
-            normalized_tools.len(),
-            normalized_tools
+        if verbose_tracing_enabled() {
+            let tool_debug_summary: Vec<Value> = normalized_tools
                 .iter()
-                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(|s| s.to_string()))
-                .collect::<Vec<String>>(),
-            input.len(),
-            instructions.len()
-        );
-        eprintln!(
-            "[responses-request-tools] {}",
-            serde_json::to_string(&tool_debug_summary).unwrap_or_else(|_| "[]".to_string())
-        );
+                .map(|tool| {
+                    let required = tool
+                        .get("parameters")
+                        .and_then(|p| p.get("required"))
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    json!({
+                        "name": tool.get("name").cloned().unwrap_or(Value::Null),
+                        "strict": tool.get("strict").cloned().unwrap_or(Value::Null),
+                        "required": required,
+                        "schema_keys": tool
+                            .get("parameters")
+                            .and_then(Value::as_object)
+                            .map(|o| o.keys().cloned().collect::<Vec<String>>())
+                            .unwrap_or_default()
+                    })
+                })
+                .collect();
+            eprintln!(
+                "[responses-request] model={} tools_count={} tool_names={:?} input_items={} instructions_len={}",
+                normalize_codex_model_id(&chat_req.model),
+                normalized_tools.len(),
+                normalized_tools
+                    .iter()
+                    .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(|s| s.to_string()))
+                    .collect::<Vec<String>>(),
+                input.len(),
+                instructions.len()
+            );
+            eprintln!(
+                "[responses-request-tools] {}",
+                serde_json::to_string(&tool_debug_summary).unwrap_or_else(|_| "[]".to_string())
+            );
+        }
         Ok(ResponsesApiRequest {
             model: normalize_codex_model_id(&chat_req.model),
             instructions,
@@ -650,12 +693,63 @@ impl ProxyServer {
         })
     }
 
-    async fn upstream_sse_text(
+    fn convert_openai_responses_request(
         &self,
-        chat_req: ChatCompletionsRequest,
+        req: OpenAiResponsesRequest,
+    ) -> Result<(String, Value), ProxyError> {
+        if req.model.trim().is_empty() {
+            return Err(ProxyError::Validation {
+                message: "model is required".to_string(),
+                field: Some("model".to_string()),
+            });
+        }
+        let input = normalize_openai_responses_input(req.input)?;
+        let model = normalize_codex_model_id(&req.model);
+        let normalized_tools = normalize_tools_for_codex(req.tools.unwrap_or_default());
+        let mut payload = json!({
+            "model": model,
+            "instructions": req.instructions.unwrap_or_else(|| "You are a helpful AI assistant. Provide clear, accurate, and concise responses to user questions and requests.".to_string()),
+            "input": input,
+            "tools": normalized_tools,
+            "tool_choice": req.tool_choice.unwrap_or_else(|| json!("auto")),
+            "parallel_tool_calls": req.parallel_tool_calls.unwrap_or(true),
+            "reasoning": req.reasoning,
+            "store": req.store.unwrap_or(false),
+            "stream": true,
+            "text": req.text.unwrap_or_else(|| json!({"verbosity":"low","format":{"type":"text"}})),
+            "include": req.include.unwrap_or_else(|| vec!["reasoning.encrypted_content".to_string()]),
+            "prompt_cache_key": req.prompt_cache_key.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        });
+        let obj = payload.as_object_mut().expect("responses payload object");
+        if let Some(previous_response_id) = req.previous_response_id {
+            obj.insert(
+                "previous_response_id".to_string(),
+                json!(previous_response_id),
+            );
+        }
+        if let Some(metadata) = req.metadata {
+            obj.insert("metadata".to_string(), metadata);
+        }
+        if let Some(truncation) = req.truncation {
+            obj.insert("truncation".to_string(), truncation);
+        }
+        if let Some(temperature) = req.temperature {
+            obj.insert("temperature".to_string(), json!(temperature));
+        }
+        if let Some(top_p) = req.top_p {
+            obj.insert("top_p".to_string(), json!(top_p));
+        }
+        if let Some(user) = req.user {
+            obj.insert("user".to_string(), json!(user));
+        }
+        Ok((model, payload))
+    }
+
+    async fn upstream_sse_text_for_payload(
+        &self,
+        model: String,
+        payload: Value,
     ) -> Result<(String, String), ProxyError> {
-        let responses_req = self.convert_chat_to_responses(chat_req)?;
-        let model = responses_req.model.clone();
         let mut request_builder = self
             .client
             .post(format!(
@@ -683,21 +777,22 @@ impl ProxyServer {
         }
         let session_id = Uuid::new_v4();
         request_builder = request_builder.header("session_id", session_id.to_string());
-        let upstream_request_json = serde_json::to_string(&responses_req)
-            .unwrap_or_else(|_| "<serialize-failed>".to_string());
-        let upstream_request_prefix: String = upstream_request_json.chars().take(1500).collect();
-        eprintln!(
-            "[upstream-request-body-bytes] {}",
-            upstream_request_json.len()
-        );
-        eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
-        let response = request_builder
-            .json(&responses_req)
-            .send()
-            .await
-            .map_err(|e| ProxyError::UpstreamUnavailable {
+        if verbose_tracing_enabled() {
+            let upstream_request_json = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "<serialize-failed>".to_string());
+            let upstream_request_prefix: String =
+                upstream_request_json.chars().take(1500).collect();
+            eprintln!(
+                "[upstream-request-body-bytes] {}",
+                upstream_request_json.len()
+            );
+            eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
+        }
+        let response = request_builder.json(&payload).send().await.map_err(|e| {
+            ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to upstream: {}", e),
-            })?;
+            }
+        })?;
         let status = response.status();
         let headers = format!("{:?}", response.headers());
         let body = response.text().await.map_err(|e| {
@@ -707,19 +802,21 @@ impl ProxyServer {
                 message: format!("failed to read upstream response body: {}", e),
             }
         })?;
-        let body_prefix: String = body.chars().take(1200).collect();
         eprintln!("[upstream-response-status] {}", status);
-        eprintln!("[upstream-response-headers] {}", headers);
-        eprintln!("[upstream-response-body-bytes] {}", body.len());
-        if !body_prefix.trim().is_empty() {
-            eprintln!("[upstream-response-body-prefix] {}", body_prefix);
-        }
-        if !body.trim().is_empty() {
-            eprintln!("[upstream-response-body] {}", body);
+        if verbose_tracing_enabled() {
+            let body_prefix: String = body.chars().take(1200).collect();
+            eprintln!("[upstream-response-headers] {}", headers);
+            eprintln!("[upstream-response-body-bytes] {}", body.len());
+            if !body_prefix.trim().is_empty() {
+                eprintln!("[upstream-response-body-prefix] {}", body_prefix);
+            }
+            if !body.trim().is_empty() {
+                eprintln!("[upstream-response-body] {}", body);
+            }
         }
         if !status.is_success() {
             eprintln!("[request-outcome] upstream_non_success");
-            let message = if body.trim().is_empty() {
+            let message = if body.trim().is_empty() || !verbose_tracing_enabled() {
                 format!("upstream returned {}", status)
             } else {
                 format!("upstream returned {} with body: {}", status, body)
@@ -730,22 +827,36 @@ impl ProxyServer {
         Ok((model, body))
     }
 
+    async fn upstream_sse_text(
+        &self,
+        chat_req: ChatCompletionsRequest,
+    ) -> Result<(String, String), ProxyError> {
+        let responses_req = self.convert_chat_to_responses(chat_req)?;
+        let model = responses_req.model.clone();
+        let payload =
+            serde_json::to_value(responses_req).map_err(|e| ProxyError::UpstreamProtocol {
+                message: format!("failed to serialize upstream request payload: {}", e),
+            })?;
+        self.upstream_sse_text_for_payload(model, payload).await
+    }
+
     async fn proxy_request_stream(
         &self,
         chat_req: ChatCompletionsRequest,
         api_family: ApiFamily,
     ) -> Result<(String, String), ProxyError> {
         let (model, sse_text) = self.upstream_sse_text(chat_req).await?;
-        eprintln!(
-            "[raw-codex-sse-begin]
+        if verbose_tracing_enabled() {
+            eprintln!(
+                "[raw-codex-sse-begin]
 {}
 [raw-codex-sse-end]",
-            sse_text
-        );
-        let events = parse_codex_sse_to_events(&sse_text).map_err(|e| {
+                sse_text
+            );
+        }
+        let events = parse_codex_sse_to_events(&sse_text).inspect_err(|e| {
             eprintln!("[codex-parse-error] {}", e.message());
             eprintln!("[request-outcome] codex_parse_failed");
-            e
         })?;
         let mut text_deltas = 0usize;
         let mut tool_call_starts = 0usize;
@@ -784,7 +895,7 @@ impl ProxyServer {
             ApiFamily::OpenAi => render_openai_sse(&events, &model),
             ApiFamily::Anthropic => render_anthropic_sse(&events, &model),
         };
-        if matches!(api_family, ApiFamily::Anthropic) {
+        if matches!(api_family, ApiFamily::Anthropic) && verbose_tracing_enabled() {
             eprintln!(
                 "[raw-anthropic-sse-begin]\n{}\n[raw-anthropic-sse-end]",
                 rendered
@@ -819,6 +930,103 @@ impl ProxyServer {
             }),
         })
     }
+
+    async fn proxy_openai_responses_request(
+        &self,
+        req: OpenAiResponsesRequest,
+    ) -> Result<Value, ProxyError> {
+        let (model, payload) = self.convert_openai_responses_request(req)?;
+        let (_model, body) = self
+            .upstream_sse_text_for_payload(model.clone(), payload)
+            .await?;
+        let events = parse_codex_sse_to_events(&body)?;
+        Ok(render_openai_responses_json(&events, &model))
+    }
+}
+
+fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, ProxyError> {
+    match input {
+        Some(Value::String(text)) => Ok(json!([
+            {"role":"user","content":[{"type":"input_text","text":text}]}
+        ])),
+        Some(Value::Array(items)) if items.is_empty() => Err(ProxyError::Validation {
+            message: "input must not be empty".to_string(),
+            field: Some("input".to_string()),
+        }),
+        Some(Value::Array(items)) => Ok(Value::Array(items)),
+        Some(Value::Object(obj)) => Ok(Value::Array(vec![Value::Object(obj)])),
+        Some(Value::Null) | None => Err(ProxyError::Validation {
+            message: "input is required".to_string(),
+            field: Some("input".to_string()),
+        }),
+        Some(other) => Ok(json!([
+            {"role":"user","content":[{"type":"input_text","text":other.to_string()}]}
+        ])),
+    }
+}
+
+fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) -> Value {
+    let mut text = String::new();
+    let mut output = Vec::new();
+    let mut input_tokens = 0u32;
+    let mut output_tokens = 0u32;
+    for event in events {
+        match event {
+            CanonicalStreamEvent::TextDelta { text: delta } => text.push_str(delta),
+            CanonicalStreamEvent::ToolCallDone {
+                call_id,
+                name,
+                arguments,
+            } => output.push(json!({
+                "type": "function_call",
+                "id": call_id,
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+                "status": "completed"
+            })),
+            CanonicalStreamEvent::Usage {
+                input_tokens: in_tokens,
+                output_tokens: out_tokens,
+            } => {
+                input_tokens = *in_tokens;
+                output_tokens = *out_tokens;
+            }
+            _ => {}
+        }
+    }
+    if !text.is_empty() {
+        output.insert(
+            0,
+            json!({
+                "type": "message",
+                "id": format!("msg_{}", Uuid::new_v4().simple()),
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text, "annotations": []}]
+            }),
+        );
+    }
+    json!({
+        "id": format!("resp_{}", Uuid::new_v4().simple()),
+        "object": "response",
+        "created_at": chrono::Utc::now().timestamp(),
+        "status": "completed",
+        "model": model,
+        "output": output,
+        "output_text": text,
+        "parallel_tool_calls": true,
+        "store": false,
+        "text": {"format": {"type": "text"}},
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": input_tokens + output_tokens
+        }
+    })
 }
 
 fn normalize_codex_model_id(model: &str) -> String {
@@ -831,6 +1039,7 @@ fn normalize_codex_model_id(model: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn anthropic_text_blocks(content: &Value) -> Vec<String> {
     match content {
         Value::String(s) => vec![s.clone()],
@@ -851,6 +1060,7 @@ fn anthropic_text_blocks(content: &Value) -> Vec<String> {
     }
 }
 
+#[allow(dead_code)]
 fn anthropic_tool_result_blocks(content: &Value) -> Vec<(String, String)> {
     match content {
         Value::Array(arr) => arr
@@ -1413,6 +1623,10 @@ async fn main() -> Result<()> {
     );
     println!("   Health check: http://127.0.0.1:{}/health", args.port);
     println!(
+        "   Responses endpoint: http://127.0.0.1:{}/v1/responses",
+        args.port
+    );
+    println!(
         "   Chat endpoint: http://127.0.0.1:{}/v1/chat/completions",
         args.port
     );
@@ -1437,6 +1651,18 @@ async fn universal_request_handler(
     let response = match (method.as_str(), path_str) {
         ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response(),
         ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[{"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"}]})).into_response(),
+        ("POST", "/v1/responses") => {
+            let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };
+            if responses_req.stream.unwrap_or(false) {
+                let (model, payload) = match proxy.convert_openai_responses_request(responses_req) { Ok(v) => v, Err(err) => return Ok(openai_error_response(err)) };
+                match proxy.upstream_sse_text_for_payload(model, payload).await {
+                    Ok((_model, sse_body)) => warp::reply::with_header(sse_body, "content-type", "text/event-stream").into_response(),
+                    Err(err) => openai_error_response(err),
+                }
+            } else {
+                match proxy.proxy_openai_responses_request(responses_req).await { Ok(response) => warp::reply::json(&response).into_response(), Err(err) => openai_error_response(err) }
+            }
+        }
         ("POST", "/v1/chat/completions") => {
             let chat_req = match serde_json::from_slice::<ChatCompletionsRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };
             if chat_req.stream.unwrap_or(false) {
@@ -1465,6 +1691,7 @@ async fn universal_request_handler(
                 }
             }
         }
+        ("GET", "/v1/responses") => method_not_allowed_response(ApiFamily::OpenAi),
         ("GET", "/v1/chat/completions") => method_not_allowed_response(ApiFamily::OpenAi),
         ("GET", "/v1/messages") => method_not_allowed_response(ApiFamily::Anthropic),
         _ => if path_str.starts_with("/v1/messages") { not_found_response(ApiFamily::Anthropic) } else { not_found_response(ApiFamily::OpenAi) },

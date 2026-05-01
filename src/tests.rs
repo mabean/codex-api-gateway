@@ -3,8 +3,9 @@ use std::fs;
 use tempfile::NamedTempFile;
 
 use crate::{
-    extract_response_content, flatten_message_content, AnthropicMessage, AnthropicMessagesRequest,
-    ChatCompletionsRequest, ChatMessage, ProxyError, ProxyServer,
+    extract_response_content, flatten_message_content, normalize_openai_responses_input,
+    render_openai_responses_json, AnthropicMessage, AnthropicMessagesRequest,
+    ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 #[tokio::test]
@@ -60,6 +61,40 @@ async fn parses_openclaw_auth_profiles_file() {
         .unwrap();
     assert_eq!(proxy.auth_data.access_token.as_deref(), Some(jwt));
     assert_eq!(proxy.auth_data.account_id.as_deref(), Some("acc_openclaw"));
+}
+
+#[tokio::test]
+async fn parses_openclaw_auth_profiles_without_last_good() {
+    let file = NamedTempFile::new().unwrap();
+    fs::write(
+        file.path(),
+        r#"{
+            "version": 1,
+            "profiles": {
+                "vercel-ai-gateway:default": {
+                    "type": "api_key",
+                    "provider": "vercel-ai-gateway",
+                    "key": "not-selected"
+                },
+                "openai-codex:user@example.com": {
+                    "type": "oauth",
+                    "provider": "openai-codex",
+                    "access": "profile-token",
+                    "accountId": "acc_profile"
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let proxy = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test")
+        .await
+        .unwrap();
+    assert_eq!(
+        proxy.auth_data.access_token.as_deref(),
+        Some("profile-token")
+    );
+    assert_eq!(proxy.auth_data.account_id.as_deref(), Some("acc_profile"));
 }
 
 #[tokio::test]
@@ -650,4 +685,114 @@ fn normalize_tool_parameters_schema_preserves_optional_parameters() {
     assert!(normalized["properties"]["isolation"]
         .get("required")
         .is_none());
+}
+
+#[test]
+fn normalize_openai_responses_input_wraps_string_as_user_input_text() {
+    let normalized = normalize_openai_responses_input(Some(serde_json::json!("hello"))).unwrap();
+    assert_eq!(
+        normalized,
+        serde_json::json!([
+            {"role":"user","content":[{"type":"input_text","text":"hello"}]}
+        ])
+    );
+}
+
+#[test]
+fn normalize_openai_responses_input_requires_value() {
+    let err = normalize_openai_responses_input(None).unwrap_err();
+    match err {
+        ProxyError::Validation { field, .. } => assert_eq!(field.as_deref(), Some("input")),
+        other => panic!("unexpected error: {:?}", other),
+    }
+}
+
+#[test]
+fn convert_openai_responses_request_normalizes_model_and_tools() {
+    let proxy = ProxyServer {
+        client: reqwest::Client::new(),
+        auth_data: crate::AuthData {
+            api_key: None,
+            access_token: None,
+            account_id: None,
+        },
+        upstream_base_url: "https://example.test".to_string(),
+    };
+
+    let req = OpenAiResponsesRequest {
+        model: "claude-sonnet-4-5".to_string(),
+        input: Some(serde_json::json!("Hello")),
+        instructions: None,
+        tools: Some(vec![serde_json::json!({
+            "type":"function",
+            "function": {
+                "name": "Edit",
+                "description": "Edit a file",
+                "parameters": {"type":"object","properties":{"file_path":{"type":"string"}}}
+            }
+        })]),
+        tool_choice: None,
+        parallel_tool_calls: None,
+        reasoning: None,
+        store: None,
+        stream: Some(false),
+        text: None,
+        include: None,
+        prompt_cache_key: None,
+        previous_response_id: Some("resp_prev".to_string()),
+        metadata: Some(serde_json::json!({"source":"test"})),
+        truncation: None,
+        temperature: None,
+        top_p: None,
+        user: Some("user-123".to_string()),
+    };
+
+    let (model, payload) = proxy.convert_openai_responses_request(req).unwrap();
+    assert_eq!(model, "gpt-5.4");
+    assert_eq!(payload["model"], serde_json::json!("gpt-5.4"));
+    assert_eq!(
+        payload["previous_response_id"],
+        serde_json::json!("resp_prev")
+    );
+    assert_eq!(payload["metadata"]["source"], serde_json::json!("test"));
+    assert_eq!(payload["user"], serde_json::json!("user-123"));
+    assert_eq!(payload["tools"][0]["name"], serde_json::json!("Edit"));
+}
+
+#[test]
+fn render_openai_responses_json_includes_text_tool_calls_and_usage() {
+    let events = vec![
+        crate::streaming::CanonicalStreamEvent::MessageStart,
+        crate::streaming::CanonicalStreamEvent::TextDelta {
+            text: "Hello".to_string(),
+        },
+        crate::streaming::CanonicalStreamEvent::ToolCallDone {
+            call_id: "call_1".to_string(),
+            name: "Edit".to_string(),
+            arguments: "{\"file_path\":\"note.txt\"}".to_string(),
+        },
+        crate::streaming::CanonicalStreamEvent::Usage {
+            input_tokens: 3,
+            output_tokens: 5,
+        },
+        crate::streaming::CanonicalStreamEvent::Completed {
+            finish_reason: Some("tool_use".to_string()),
+        },
+    ];
+
+    let rendered = render_openai_responses_json(&events, "gpt-5.4");
+    assert_eq!(rendered["object"], serde_json::json!("response"));
+    assert_eq!(rendered["model"], serde_json::json!("gpt-5.4"));
+    assert_eq!(rendered["output_text"], serde_json::json!("Hello"));
+    assert_eq!(rendered["usage"]["total_tokens"], serde_json::json!(8));
+    assert!(rendered["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["type"] == "message"));
+    assert!(rendered["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["type"] == "function_call" && item["name"] == "Edit"));
 }
