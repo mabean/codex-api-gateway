@@ -16,7 +16,7 @@ A local-first API gateway that exposes OpenAI-compatible and Anthropic-compatibl
 - **Telemetry:** none intended
 - **Security docs:** `SECURITY.md`, `THREAT_MODEL.md`, `BUILD.md`
 - **Verification baseline:** `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo build`
-- **Ingress surfaces:** OpenAI-compatible `/v1/chat/completions`, Anthropic-compatible `/v1/messages`, both with streaming support
+- **Ingress surfaces:** OpenAI-compatible `/v1/responses` and `/v1/chat/completions`, Anthropic-compatible `/v1/messages`, with streaming support
 - **Secrets posture:** local auth material only; auth files must not be committed or publicly exposed
 
 This is a trust-boundary and auditability signal, not a claim of production readiness.
@@ -59,6 +59,7 @@ Important:
 ## Features (current / target split)
 
 Current:
+- OpenAI-compatible `/v1/responses` ingress for Codex/OpenAI-native clients
 - OpenAI-compatible `/v1/chat/completions` ingress
 - Anthropic-compatible `/v1/messages` ingress with streaming support
 - Structured validation and error envelopes for both API families
@@ -110,7 +111,16 @@ If remote exposure is ever needed, it must be documented as an advanced deployme
 # Health check
 curl http://127.0.0.1:8080/health
 
-# Test completion (OpenAI-compatible ingress)
+# Test completion (OpenAI Responses ingress)
+curl -X POST http://127.0.0.1:8080/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local-test-key" \
+  -d '{
+    "model": "gpt-5",
+    "input": "Hello!"
+  }'
+
+# Test completion (OpenAI-compatible chat ingress)
 curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local-test-key" \
@@ -175,8 +185,8 @@ Notes:
 ### Request Flow
 
 OpenAI-compatible path:
-1. **Client** → Chat Completions format → **Proxy**
-2. **Proxy** → Converts to internal Responses-style upstream request → **ChatGPT/Codex backend**
+1. **Client** → Responses or Chat Completions format → **Proxy**
+2. **Proxy** → Normalizes onto the internal Responses-style upstream request → **ChatGPT/Codex backend**
 3. **Backend** → SSE/text result → **Proxy**
 4. **Proxy** → Converts to Chat Completions response → **Client**
 
@@ -222,6 +232,7 @@ The proxy supports:
 - Returns service status
 
 ### OpenAI-compatible
+- **POST** `/v1/responses`
 - **POST** `/v1/chat/completions`
 - **GET** `/v1/models`
 

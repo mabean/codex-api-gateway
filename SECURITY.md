@@ -21,6 +21,7 @@ Current security goals:
 
 ## Rules
 - Never log raw bearer tokens or auth files
+- Keep prompt/response/tool-argument wire logs disabled by default; use `CODEX_PROXY_VERBOSE=1` only for local diagnostics
 - Do not expose the proxy publicly by default
 - Do not commit local auth files
 - Treat reverse tunnels/public bind as advanced and unsafe until separately hardened
@@ -31,8 +32,8 @@ Current security goals:
 - auth-related OpenAI hosts only if explicitly needed by future refresh logic
 
 ## Current protocol/security notes
-- OpenAI-compatible `/v1/chat/completions` is implemented
-- Anthropic-compatible `/v1/messages` is implemented as a text/non-streaming baseline
+- OpenAI-compatible `/v1/responses` and `/v1/chat/completions` are implemented
+- Anthropic-compatible `/v1/messages` is implemented with streaming and baseline tool-use rendering
 - error responses are structured per API family
 - usage accounting on compatibility surfaces is currently placeholder-level
 

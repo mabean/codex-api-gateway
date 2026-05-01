@@ -16,7 +16,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ## Current verification baseline
-As of 2026-04-07, the repo has been checked locally with:
+As of 2026-05-02, the repo has been checked locally with:
 - `cargo fmt --check`
 - `cargo test`
 - `python3 scripts/check_crate_age.py 7`

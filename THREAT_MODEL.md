@@ -25,9 +25,10 @@ The proxy is designed to run on the same machine as the user and consume local a
 
 ## Mitigations currently present
 - localhost bind
-- auth validation
+- auth validation for legacy Codex auth and OpenClaw auth profile stores
 - honest error responses
 - removal of fake response paths
 - transport/header minimization
 - reproducible build path
 - explicit OpenAI/Anthropic baseline documentation
+- sensitive wire/body diagnostics are opt-in behind `CODEX_PROXY_VERBOSE=1`

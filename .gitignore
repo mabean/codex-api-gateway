@@ -1,7 +1,6 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # IDE
 .vscode/
@@ -31,6 +30,3 @@ auth.json
 /tmp/
 *.tmp
 *.temp
-
-# Local planning / scratch docs
-HARDENING_PLAN.md
