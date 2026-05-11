@@ -1032,7 +1032,7 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
 fn normalize_codex_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
     let lower = short.to_lowercase();
-    if lower.starts_with("claude-") {
+    if lower == "gpt-5" || lower.starts_with("claude-") {
         "gpt-5.4".to_string()
     } else {
         short.to_string()

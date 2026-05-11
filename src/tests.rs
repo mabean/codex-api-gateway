@@ -3,10 +3,18 @@ use std::fs;
 use tempfile::NamedTempFile;
 
 use crate::{
-    extract_response_content, flatten_message_content, normalize_openai_responses_input,
-    render_openai_responses_json, AnthropicMessage, AnthropicMessagesRequest,
-    ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    extract_response_content, flatten_message_content, normalize_codex_model_id,
+    normalize_openai_responses_input, render_openai_responses_json, AnthropicMessage,
+    AnthropicMessagesRequest, ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest,
+    ProxyError, ProxyServer,
 };
+
+#[test]
+fn normalizes_documented_codex_model_alias() {
+    assert_eq!(normalize_codex_model_id("gpt-5"), "gpt-5.4");
+    assert_eq!(normalize_codex_model_id("openai/gpt-5"), "gpt-5.4");
+    assert_eq!(normalize_codex_model_id("gpt-5.4"), "gpt-5.4");
+}
 
 #[tokio::test]
 async fn parses_legacy_auth_file() {

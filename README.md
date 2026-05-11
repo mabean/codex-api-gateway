@@ -116,7 +116,7 @@ curl -X POST http://127.0.0.1:8080/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local-test-key" \
   -d '{
-    "model": "gpt-5",
+    "model": "gpt-5.4",
     "input": "Hello!"
   }'
 
@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local-test-key" \
   -d '{
-    "model": "gpt-5",
+    "model": "gpt-5.4",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
