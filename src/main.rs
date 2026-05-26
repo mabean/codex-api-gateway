@@ -97,6 +97,17 @@ struct Args {
     auth_path: String,
     #[arg(long, default_value = "https://chatgpt.com/backend-api")]
     upstream_base_url: String,
+    #[arg(
+        long,
+        default_value = "https://api.anthropic.com",
+        help = "Anthropic Messages API base URL"
+    )]
+    anthropic_upstream_base_url: String,
+    #[arg(
+        long,
+        help = "Anthropic upstream API token; alternatively set ANTHROPIC_UPSTREAM_API_KEY"
+    )]
+    anthropic_auth_token: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -315,6 +326,12 @@ enum ApiFamily {
     Anthropic,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnthropicModelRoute {
+    Codex,
+    Anthropic,
+}
+
 #[derive(Debug, Clone)]
 enum ProxyError {
     InvalidJson {
@@ -443,10 +460,17 @@ struct ProxyServer {
     client: Client,
     auth_data: AuthData,
     upstream_base_url: String,
+    anthropic_upstream_base_url: String,
+    anthropic_auth_token: Option<String>,
 }
 
 impl ProxyServer {
-    async fn new(auth_path: &str, upstream_base_url: &str) -> Result<Self> {
+    async fn new(
+        auth_path: &str,
+        upstream_base_url: &str,
+        anthropic_upstream_base_url: &str,
+        anthropic_auth_token: Option<String>,
+    ) -> Result<Self> {
         let auth_path = if auth_path.starts_with("~/") {
             let home = std::env::var("HOME").context("HOME environment variable not set")?;
             auth_path.replace("~", &home)
@@ -467,6 +491,9 @@ impl ProxyServer {
             client,
             auth_data,
             upstream_base_url: upstream_base_url.to_string(),
+            anthropic_upstream_base_url: anthropic_upstream_base_url.to_string(),
+            anthropic_auth_token: anthropic_auth_token
+                .or_else(|| std::env::var("ANTHROPIC_UPSTREAM_API_KEY").ok()),
         })
     }
 
@@ -947,6 +974,79 @@ impl ProxyServer {
         let events = parse_codex_sse_to_events(&body)?;
         Ok(render_openai_responses_json(&events, &model))
     }
+
+    async fn proxy_anthropic_upstream_request(
+        &self,
+        body: bytes::Bytes,
+        inbound_headers: &warp::http::HeaderMap,
+    ) -> Result<UpstreamHttpResponse, ProxyError> {
+        let mut request_builder = self
+            .client
+            .post(format!(
+                "{}/v1/messages",
+                self.anthropic_upstream_base_url.trim_end_matches('/')
+            ))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "codex-api-gateway/anthropic-router");
+
+        if let Some(accept) = inbound_headers.get("accept") {
+            request_builder = request_builder.header("Accept", accept);
+        }
+        if let Some(version) = inbound_headers.get("anthropic-version") {
+            request_builder = request_builder.header("anthropic-version", version);
+        } else {
+            request_builder = request_builder.header("anthropic-version", "2023-06-01");
+        }
+        for beta in inbound_headers.get_all("anthropic-beta") {
+            request_builder = request_builder.header("anthropic-beta", beta);
+        }
+
+        if let Some(token) = &self.anthropic_auth_token {
+            request_builder = request_builder.header("x-api-key", token);
+        } else if let Some(authorization) = inbound_headers.get("authorization") {
+            request_builder = request_builder.header("authorization", authorization);
+        } else if let Some(api_key) = inbound_headers
+            .get("x-api-key")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !is_local_proxy_api_key(value))
+        {
+            request_builder = request_builder.header("x-api-key", api_key);
+        } else {
+            return Err(ProxyError::Auth {
+                message: "no Anthropic upstream auth found; set ANTHROPIC_UPSTREAM_API_KEY or send a real Anthropic authorization header".to_string(),
+            });
+        }
+
+        let response = request_builder.body(body).send().await.map_err(|e| {
+            ProxyError::UpstreamUnavailable {
+                message: format!("failed to send request to Anthropic upstream: {}", e),
+            }
+        })?;
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/json")
+            .to_string();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ProxyError::UpstreamProtocol {
+                message: format!("failed to read Anthropic upstream response body: {}", e),
+            })?;
+        Ok(UpstreamHttpResponse {
+            status,
+            content_type,
+            body,
+        })
+    }
+}
+
+struct UpstreamHttpResponse {
+    status: StatusCode,
+    content_type: String,
+    body: String,
 }
 
 fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, ProxyError> {
@@ -1037,11 +1137,24 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
 fn normalize_codex_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
     let lower = short.to_lowercase();
-    if lower == "gpt-5" || lower.starts_with("claude-") {
+    if lower == "gpt-5" {
         "gpt-5.4".to_string()
     } else {
         short.to_string()
     }
+}
+
+fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
+    let short = model.rsplit('/').next().unwrap_or(model);
+    if short.to_lowercase().starts_with("claude-") {
+        AnthropicModelRoute::Anthropic
+    } else {
+        AnthropicModelRoute::Codex
+    }
+}
+
+fn is_local_proxy_api_key(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case("local-proxy")
 }
 
 #[allow(dead_code)]
@@ -1572,7 +1685,13 @@ fn log_request(method: &warp::http::Method, path: &str, headers: &warp::http::He
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
-    let proxy = ProxyServer::new(&args.auth_path, &args.upstream_base_url).await?;
+    let proxy = ProxyServer::new(
+        &args.auth_path,
+        &args.upstream_base_url,
+        &args.anthropic_upstream_base_url,
+        args.anthropic_auth_token,
+    )
+    .await?;
     println!("Initializing Codex API Gateway...");
     println!("✓ Loaded authentication from {}", args.auth_path);
     println!(
@@ -1594,6 +1713,10 @@ async fn main() -> Result<()> {
         }
     );
     println!("✓ Upstream base URL: {}", proxy.upstream_base_url);
+    println!(
+        "✓ Anthropic upstream base URL: {}",
+        proxy.anthropic_upstream_base_url
+    );
     let proxy_filter = warp::any().map(move || proxy.clone());
     let cors = warp::cors()
         .allow_any_origin()
@@ -1655,7 +1778,10 @@ async fn universal_request_handler(
     log_request(&method, path_str, &headers);
     let response = match (method.as_str(), path_str) {
         ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response(),
-        ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[{"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"}]})).into_response(),
+        ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[
+            {"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"},
+            {"id":"claude-sonnet-4-5","object":"model","created":1687882411,"owned_by":"anthropic-upstream"}
+        ]})).into_response(),
         ("POST", "/v1/responses") => {
             let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };
             if responses_req.stream.unwrap_or(false) {
@@ -1680,19 +1806,61 @@ async fn universal_request_handler(
             }
         }
         ("POST", "/v1/messages") => {
-            let anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body) { Ok(req) => req, Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))) };
-            let stream = anthropic_req.stream.unwrap_or(false);
-            let model = anthropic_req.model.clone();
-            let chat_req = match proxy.convert_anthropic_to_chat(anthropic_req) { Ok(req) => req, Err(err) => return Ok(anthropic_error_response(err)) };
-            if stream {
-                match proxy.proxy_request_stream(chat_req, ApiFamily::Anthropic).await {
-                    Ok((_model, sse_body)) => warp::reply::with_header(sse_body, "content-type", "text/event-stream").into_response(),
+            let anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body) {
+                Ok(req) => req,
+                Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
+            };
+            let route = route_anthropic_model(&anthropic_req.model);
+            eprintln!(
+                "[anthropic-route] model={} route={}",
+                anthropic_req.model,
+                match route {
+                    AnthropicModelRoute::Codex => "codex",
+                    AnthropicModelRoute::Anthropic => "anthropic",
+                }
+            );
+            if route == AnthropicModelRoute::Anthropic {
+                match proxy
+                    .proxy_anthropic_upstream_request(body.clone(), &headers)
+                    .await
+                {
+                    Ok(upstream_response) => {
+                        warp::reply::with_status(
+                            warp::reply::with_header(
+                                upstream_response.body,
+                                "content-type",
+                                upstream_response.content_type,
+                            ),
+                            upstream_response.status,
+                        )
+                        .into_response()
+                    }
                     Err(err) => anthropic_error_response(err),
                 }
             } else {
-                match proxy.proxy_request(chat_req).await {
-                    Ok(response) => warp::reply::json(&convert_chat_to_anthropic(&normalize_codex_model_id(&model), response)).into_response(),
-                    Err(err) => anthropic_error_response(err),
+                let stream = anthropic_req.stream.unwrap_or(false);
+                let model = anthropic_req.model.clone();
+                let chat_req = match proxy.convert_anthropic_to_chat(anthropic_req) {
+                    Ok(req) => req,
+                    Err(err) => return Ok(anthropic_error_response(err)),
+                };
+                if stream {
+                    match proxy.proxy_request_stream(chat_req, ApiFamily::Anthropic).await {
+                        Ok((_model, sse_body)) => {
+                            warp::reply::with_header(sse_body, "content-type", "text/event-stream")
+                                .into_response()
+                        }
+                        Err(err) => anthropic_error_response(err),
+                    }
+                } else {
+                    match proxy.proxy_request(chat_req).await {
+                        Ok(response) => warp::reply::json(&convert_chat_to_anthropic(
+                            &normalize_codex_model_id(&model),
+                            response,
+                        ))
+                        .into_response(),
+                        Err(err) => anthropic_error_response(err),
+                    }
                 }
             }
         }
@@ -1710,6 +1878,8 @@ impl Clone for ProxyServer {
             client: self.client.clone(),
             auth_data: self.auth_data.clone(),
             upstream_base_url: self.upstream_base_url.clone(),
+            anthropic_upstream_base_url: self.anthropic_upstream_base_url.clone(),
+            anthropic_auth_token: self.anthropic_auth_token.clone(),
         }
     }
 }

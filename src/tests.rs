@@ -4,9 +4,9 @@ use tempfile::NamedTempFile;
 
 use crate::{
     extract_response_content, flatten_message_content, normalize_codex_model_id,
-    normalize_openai_responses_input, render_openai_responses_json, AnthropicMessage,
-    AnthropicMessagesRequest, ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest,
-    ProxyError, ProxyServer,
+    normalize_openai_responses_input, render_openai_responses_json, route_anthropic_model,
+    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
+    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 #[test]
@@ -14,6 +14,27 @@ fn normalizes_documented_codex_model_alias() {
     assert_eq!(normalize_codex_model_id("gpt-5"), "gpt-5.4");
     assert_eq!(normalize_codex_model_id("openai/gpt-5"), "gpt-5.4");
     assert_eq!(normalize_codex_model_id("gpt-5.4"), "gpt-5.4");
+    assert_eq!(
+        normalize_codex_model_id("anthropic/claude-sonnet-4-5"),
+        "claude-sonnet-4-5"
+    );
+}
+
+#[test]
+fn routes_anthropic_ingress_by_model_family() {
+    assert_eq!(
+        route_anthropic_model("claude-sonnet-4-5"),
+        AnthropicModelRoute::Anthropic
+    );
+    assert_eq!(
+        route_anthropic_model("anthropic/claude-opus-4-1"),
+        AnthropicModelRoute::Anthropic
+    );
+    assert_eq!(route_anthropic_model("gpt-5"), AnthropicModelRoute::Codex);
+    assert_eq!(
+        route_anthropic_model("openai/gpt-5"),
+        AnthropicModelRoute::Codex
+    );
 }
 
 #[tokio::test]
@@ -31,9 +52,14 @@ async fn parses_legacy_auth_file() {
     )
     .unwrap();
 
-    let proxy = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test")
-        .await
-        .unwrap();
+    let proxy = ProxyServer::new(
+        file.path().to_str().unwrap(),
+        "https://example.test",
+        "https://api.anthropic.test",
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         proxy.auth_data.access_token.as_deref(),
         Some("legacy-token")
@@ -64,9 +90,14 @@ async fn parses_openclaw_auth_profiles_file() {
     )
     .unwrap();
 
-    let proxy = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test")
-        .await
-        .unwrap();
+    let proxy = ProxyServer::new(
+        file.path().to_str().unwrap(),
+        "https://example.test",
+        "https://api.anthropic.test",
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(proxy.auth_data.access_token.as_deref(), Some(jwt));
     assert_eq!(proxy.auth_data.account_id.as_deref(), Some("acc_openclaw"));
 }
@@ -95,9 +126,14 @@ async fn parses_openclaw_auth_profiles_without_last_good() {
     )
     .unwrap();
 
-    let proxy = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test")
-        .await
-        .unwrap();
+    let proxy = ProxyServer::new(
+        file.path().to_str().unwrap(),
+        "https://example.test",
+        "https://api.anthropic.test",
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         proxy.auth_data.access_token.as_deref(),
         Some("profile-token")
@@ -110,7 +146,13 @@ async fn rejects_file_without_usable_credentials() {
     let file = NamedTempFile::new().unwrap();
     fs::write(file.path(), r#"{"tokens": {}}"#).unwrap();
 
-    let result = ProxyServer::new(file.path().to_str().unwrap(), "https://example.test").await;
+    let result = ProxyServer::new(
+        file.path().to_str().unwrap(),
+        "https://example.test",
+        "https://api.anthropic.test",
+        None,
+    )
+    .await;
     assert!(result.is_err());
     let err = result.err().unwrap();
     let msg = err.to_string();
@@ -131,6 +173,8 @@ fn converts_anthropic_messages_to_internal_chat_shape() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = AnthropicMessagesRequest {
@@ -162,6 +206,8 @@ fn converts_anthropic_messages_without_system_prompt() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = AnthropicMessagesRequest {
@@ -198,6 +244,8 @@ fn anthropic_requires_max_tokens() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = AnthropicMessagesRequest {
@@ -231,6 +279,8 @@ fn anthropic_rejects_invalid_role() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = AnthropicMessagesRequest {
@@ -264,6 +314,8 @@ fn chat_request_requires_messages() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = ChatCompletionsRequest {
@@ -344,6 +396,8 @@ fn convert_chat_to_responses_supports_array_message_content() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = ChatCompletionsRequest {
@@ -374,6 +428,8 @@ fn convert_chat_to_responses_preserves_assistant_history() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
     let req = ChatCompletionsRequest {
         model: "gpt-test".to_string(),
@@ -449,9 +505,11 @@ fn anthropic_tool_result_blocks_become_function_call_output_items() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
     let req = ChatCompletionsRequest {
-        model: "claude-sonnet-4-5".to_string(),
+        model: "openai/gpt-5".to_string(),
         messages: vec![ChatMessage {
             role: "user".to_string(),
             content: serde_json::json!([
@@ -617,9 +675,11 @@ fn anthropic_assistant_tool_use_blocks_become_codex_function_call_items() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
     let req = ChatCompletionsRequest {
-        model: "claude-sonnet-4-5".to_string(),
+        model: "openai/gpt-5".to_string(),
         messages: vec![ChatMessage {
             role: "assistant".to_string(),
             content: serde_json::json!([
@@ -725,10 +785,12 @@ fn convert_openai_responses_request_normalizes_model_and_tools() {
             account_id: None,
         },
         upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
     };
 
     let req = OpenAiResponsesRequest {
-        model: "claude-sonnet-4-5".to_string(),
+        model: "openai/gpt-5".to_string(),
         input: Some(serde_json::json!("Hello")),
         instructions: None,
         tools: Some(vec![serde_json::json!({
