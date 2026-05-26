@@ -124,7 +124,7 @@ async fn rejects_file_without_usable_credentials() {
 #[test]
 fn converts_anthropic_messages_to_internal_chat_shape() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -155,7 +155,7 @@ fn converts_anthropic_messages_to_internal_chat_shape() {
 #[test]
 fn converts_anthropic_messages_without_system_prompt() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -191,7 +191,7 @@ fn converts_anthropic_messages_without_system_prompt() {
 #[test]
 fn anthropic_requires_max_tokens() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -224,7 +224,7 @@ fn anthropic_requires_max_tokens() {
 #[test]
 fn anthropic_rejects_invalid_role() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -257,7 +257,7 @@ fn anthropic_rejects_invalid_role() {
 #[test]
 fn chat_request_requires_messages() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -337,7 +337,7 @@ fn extract_response_content_errors_when_empty() {
 #[test]
 fn convert_chat_to_responses_supports_array_message_content() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -367,7 +367,7 @@ fn convert_chat_to_responses_supports_array_message_content() {
 #[test]
 fn convert_chat_to_responses_preserves_assistant_history() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -442,7 +442,7 @@ fn render_anthropic_sse_includes_tool_use_blocks() {
 #[test]
 fn anthropic_tool_result_blocks_become_function_call_output_items() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -610,7 +610,7 @@ fn anthropic_edit_prompt_stream_must_use_tool_use_contract() {
 #[test]
 fn anthropic_assistant_tool_use_blocks_become_codex_function_call_items() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,
@@ -718,7 +718,7 @@ fn normalize_openai_responses_input_requires_value() {
 #[test]
 fn convert_openai_responses_request_normalizes_model_and_tools() {
     let proxy = ProxyServer {
-        client: reqwest::Client::new(),
+        client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
             api_key: None,
             access_token: None,

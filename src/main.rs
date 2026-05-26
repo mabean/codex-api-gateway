@@ -80,6 +80,14 @@ mod streaming;
 #[cfg(test)]
 mod tests;
 
+fn build_http_client() -> Result<Client> {
+    Client::builder()
+        .user_agent("pi (codex-api-gateway)")
+        .no_proxy()
+        .build()
+        .context("Failed to create HTTP client")
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -454,10 +462,7 @@ impl ProxyServer {
         if auth_data.api_key.is_none() && auth_data.access_token.is_none() {
             anyhow::bail!("auth file did not contain a usable API key or OAuth access token")
         }
-        let client = Client::builder()
-            .user_agent("pi (codex-api-gateway)")
-            .build()
-            .context("Failed to create HTTP client")?;
+        let client = build_http_client()?;
         Ok(Self {
             client,
             auth_data,
