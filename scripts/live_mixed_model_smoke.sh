@@ -8,7 +8,7 @@ ANTHROPIC_UPSTREAM_BASE_URL="${ANTHROPIC_UPSTREAM_BASE_URL:-https://api.anthropi
 ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_UPSTREAM_API_KEY:-}}"
 LOG="${LOG:-/tmp/codex-gw-mixed-model.log}"
 OUT_DIR="${OUT_DIR:-/tmp/codex-gw-mixed-model}"
-MODELS=(${MODELS:-gpt-5 claude-sonnet-4-5 gpt-5})
+MODELS=(${MODELS:-gpt-5.4 claude-sonnet-4-5 gpt-5.4})
 
 if [[ ! -f "$AUTH_PATH" ]]; then
   echo "missing Codex auth file: $AUTH_PATH" >&2

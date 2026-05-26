@@ -1136,12 +1136,7 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
 
 fn normalize_codex_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
-    let lower = short.to_lowercase();
-    if lower == "gpt-5" {
-        "gpt-5.4".to_string()
-    } else {
-        short.to_string()
-    }
+    short.to_string()
 }
 
 fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
