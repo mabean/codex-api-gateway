@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, sync::Mutex};
 
 use tempfile::NamedTempFile;
 
@@ -11,8 +11,24 @@ use crate::{
     ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
+static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
+const ALIAS_ENV_KEYS: &[&str] = &[
+    "CODEX_GATEWAY_ALIAS_SONNET",
+    "CODEX_GATEWAY_ALIAS_OPUS",
+    "CODEX_GATEWAY_ALIAS_HAIKU",
+];
+
+fn clear_alias_env() {
+    for key in ALIAS_ENV_KEYS {
+        std::env::remove_var(key);
+    }
+}
+
 #[test]
 fn normalizes_provider_prefixed_model_ids() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
     assert_eq!(normalize_codex_model_id("openai/gpt-5.4"), "gpt-5.4");
     assert_eq!(normalize_codex_model_id("gpt-5.4"), "gpt-5.4");
     assert_eq!(
@@ -23,6 +39,9 @@ fn normalizes_provider_prefixed_model_ids() {
 
 #[test]
 fn routes_anthropic_ingress_by_model_family() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
     assert_eq!(
         route_anthropic_model("claude-sonnet-4-6"),
         AnthropicModelRoute::Anthropic
@@ -52,6 +71,9 @@ fn routes_anthropic_ingress_by_model_family() {
 
 #[test]
 fn normalizes_anthropic_model_aliases_to_current_versions() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
     assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-4-6");
     assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-4-7");
     assert_eq!(
@@ -65,7 +87,22 @@ fn normalizes_anthropic_model_aliases_to_current_versions() {
 }
 
 #[test]
+fn can_remap_claude_code_agent_alias_to_codex_model() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+    std::env::set_var("CODEX_GATEWAY_ALIAS_HAIKU", "openai/gpt-5.4-mini");
+
+    assert_eq!(route_anthropic_model("haiku"), AnthropicModelRoute::Codex);
+    assert_eq!(normalize_codex_model_id("haiku"), "gpt-5.4-mini");
+
+    clear_alias_env();
+}
+
+#[test]
 fn rewrites_anthropic_request_model_aliases_before_upstream() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
     let body = br#"{
         "model": "sonnet",
         "max_tokens": 64,
@@ -88,7 +125,9 @@ fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
         .filter_map(|model| model["id"].as_str())
         .collect::<Vec<_>>();
 
+    assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
+    assert!(ids.contains(&"gpt-5.4-mini"));
     assert!(ids.contains(&"claude-opus-4-7"));
     assert!(ids.contains(&"claude-sonnet-4-6"));
     assert!(ids.contains(&"claude-opus-4-6"));

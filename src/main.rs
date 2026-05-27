@@ -13,13 +13,32 @@ use streaming::{
 const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
-const CODEX_MODELS: &[GatewayModel] = &[GatewayModel {
-    id: "gpt-5.4",
-    display_name: "GPT 5.4",
-    owned_by: "openai-codex",
-    created_at: "2026-01-01T00:00:00Z",
-    created: 1767225600,
-}];
+const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-4-6";
+const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-7";
+const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
+const CODEX_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "gpt-5.5",
+        display_name: "GPT 5.5",
+        owned_by: "openai-codex",
+        created_at: "2026-05-01T00:00:00Z",
+        created: 1777593600,
+    },
+    GatewayModel {
+        id: "gpt-5.4",
+        display_name: "GPT 5.4",
+        owned_by: "openai-codex",
+        created_at: "2026-01-01T00:00:00Z",
+        created: 1767225600,
+    },
+    GatewayModel {
+        id: "gpt-5.4-mini",
+        display_name: "GPT 5.4 Mini",
+        owned_by: "openai-codex",
+        created_at: "2026-01-01T00:00:00Z",
+        created: 1767225600,
+    },
+];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "claude-opus-4-7",
@@ -1313,35 +1332,62 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
 
 fn normalize_codex_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
+    if let Some(target) = resolve_gateway_model_alias(short) {
+        return target.rsplit('/').next().unwrap_or(&target).to_string();
+    }
     short.to_string()
 }
 
 fn normalize_anthropic_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
-    match short.to_lowercase().as_str() {
-        "sonnet" => "claude-sonnet-4-6".to_string(),
-        "opus" => "claude-opus-4-7".to_string(),
-        "haiku" => "claude-haiku-4-5-20251001".to_string(),
+    if let Some(target) = resolve_gateway_model_alias(short) {
+        let target_short = target.rsplit('/').next().unwrap_or(&target);
+        if !target_short.eq_ignore_ascii_case(short) {
+            return normalize_anthropic_model_shorthand(target_short);
+        }
+    }
+    normalize_anthropic_model_shorthand(short)
+}
+
+fn normalize_anthropic_model_shorthand(model: &str) -> String {
+    match model.to_lowercase().as_str() {
+        "sonnet" => DEFAULT_SONNET_ALIAS_TARGET.to_string(),
+        "opus" => DEFAULT_OPUS_ALIAS_TARGET.to_string(),
+        "haiku" => DEFAULT_HAIKU_ALIAS_TARGET.to_string(),
         "claude-opus-4-5" => "claude-opus-4-5-20251101".to_string(),
         "claude-haiku-4-5" => "claude-haiku-4-5-20251001".to_string(),
         "claude-sonnet-4-5" => "claude-sonnet-4-5-20250929".to_string(),
         "claude-opus-4-1" => "claude-opus-4-1-20250805".to_string(),
         "claude-opus-4" => "claude-opus-4-20250514".to_string(),
         "claude-sonnet-4" => "claude-sonnet-4-20250514".to_string(),
-        _ => short.to_string(),
+        _ => model.to_string(),
     }
 }
 
 fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
     let short = model.rsplit('/').next().unwrap_or(model);
     let normalized = short.to_lowercase();
-    if normalized.starts_with("claude-")
-        || matches!(normalized.as_str(), "sonnet" | "opus" | "haiku")
-    {
+    let route_model = resolve_gateway_model_alias(&normalized).unwrap_or(normalized);
+    let route_short = route_model.rsplit('/').next().unwrap_or(&route_model);
+    if route_short.to_lowercase().starts_with("claude-") {
         AnthropicModelRoute::Anthropic
     } else {
         AnthropicModelRoute::Codex
     }
+}
+
+fn resolve_gateway_model_alias(model: &str) -> Option<String> {
+    let short = model.rsplit('/').next().unwrap_or(model).to_lowercase();
+    let (env_name, default_target) = match short.as_str() {
+        "sonnet" => ("CODEX_GATEWAY_ALIAS_SONNET", DEFAULT_SONNET_ALIAS_TARGET),
+        "opus" => ("CODEX_GATEWAY_ALIAS_OPUS", DEFAULT_OPUS_ALIAS_TARGET),
+        "haiku" => ("CODEX_GATEWAY_ALIAS_HAIKU", DEFAULT_HAIKU_ALIAS_TARGET),
+        _ => return None,
+    };
+    std::env::var(env_name)
+        .ok()
+        .and_then(normalize_optional_secret)
+        .or_else(|| Some(default_target.to_string()))
 }
 
 fn is_local_proxy_api_key(value: &str) -> bool {

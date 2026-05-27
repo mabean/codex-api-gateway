@@ -160,7 +160,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 Why this works:
 - Claude Code talks to the Anthropic-compatible `/v1/messages` surface
 - requests whose model starts with `claude-` are forwarded to the Anthropic upstream with Claude subscription OAuth when available locally
-- requests whose model is OpenAI/Codex-style, such as `gpt-5.4` or `openai/gpt-5.4`, are translated into the Codex/ChatGPT upstream path
+- requests whose model is OpenAI/Codex-style, such as `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, or `openai/gpt-5.4`, are translated into the Codex/ChatGPT upstream path
 - Claude family aliases `sonnet`, `opus`, and `haiku` are normalized to the current gateway-supported Claude versions before forwarding upstream
 
 Claude upstream auth resolution order:
@@ -172,8 +172,11 @@ Claude upstream auth resolution order:
 
 For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Claude Code HTTP contract: `Authorization: Bearer`, `x-app: cli`, the Claude Code user agent/client-platform headers, `oauth-2025-04-20`, and the Claude Code system attribution prefix required by subscription inference.
 
-`GET /v1/models` returns `gpt-5.4` plus all currently listed Claude subscription versions:
+`GET /v1/models` returns all currently validated Codex text models plus all currently listed Claude subscription versions:
 
+- `gpt-5.5`
+- `gpt-5.4`
+- `gpt-5.4-mini`
 - `claude-opus-4-7`
 - `claude-sonnet-4-6`
 - `claude-opus-4-6`
@@ -204,7 +207,20 @@ CLAUDE_STREAM_OK
 Notes:
 - keep the proxy running locally on port `8080`
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` reduces unrelated first-party side traffic during proxy usage
+- Claude Code's `Agent` tool currently validates subagent model names before the gateway sees a request, and only accepts the aliases `sonnet`, `opus`, and `haiku`; to route one of those subagent lanes to Codex, set a gateway alias override such as `CODEX_GATEWAY_ALIAS_HAIKU=gpt-5.4-mini` and then select `haiku` in the Agent tool
 - the gateway is currently intended for local development use, not public exposure
+
+Gateway alias overrides:
+
+```bash
+# Defaults:
+# CODEX_GATEWAY_ALIAS_SONNET=claude-sonnet-4-6
+# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-4-7
+# CODEX_GATEWAY_ALIAS_HAIKU=claude-haiku-4-5-20251001
+
+# Example: make Claude Code Agent's `haiku` lane use Codex.
+export CODEX_GATEWAY_ALIAS_HAIKU="gpt-5.4-mini"
+```
 
 ### 6. Live mixed-model smoke test
 
@@ -215,15 +231,16 @@ AUTH_PATH="$HOME/.codex/auth.json" scripts/live_mixed_model_smoke.sh
 ```
 
 Default sequence:
-- `gpt-5.4` → Codex/ChatGPT upstream
+- `gpt-5.5` → Codex/ChatGPT upstream
 - `claude-sonnet-4-6` → Anthropic upstream
+- `gpt-5.4-mini` → Codex/ChatGPT upstream
 - `gpt-5.4` → Codex/ChatGPT upstream
 
 The script starts the local gateway, calls `/v1/messages` for each model in order, checks exact response markers, and prints routing evidence from gateway logs.
 
 Notes:
 - `AUTH_PATH` defaults to `$HOME/.codex/auth.json`
-- `MODELS="gpt-5.4 claude-sonnet-4-6 gpt-5.4"` can override the sequence
+- `MODELS="gpt-5.5 claude-sonnet-4-6 gpt-5.4-mini gpt-5.4"` can override the sequence
 - Claude calls use `ANTHROPIC_OAUTH_TOKEN`, local Claude Code credentials, or `ANTHROPIC_UPSTREAM_API_KEY` / `--anthropic-auth-token`
 
 For a fuller Claude Code compatibility check, including text-only calls, direct `/v1/messages` JSON/SSE calls, file-edit `tool_use`, `tool_result` follow-ups, and `Bash` tool calls:
