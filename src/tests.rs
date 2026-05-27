@@ -3,12 +3,13 @@ use std::{fs, sync::Mutex};
 use tempfile::NamedTempFile;
 
 use crate::{
-    anthropic_beta_header, apply_claude_code_oauth_system_prompt, extract_response_content,
-    flatten_message_content, gateway_models_response, is_anthropic_oauth_token,
-    normalize_anthropic_model_id, normalize_anthropic_request_model, normalize_codex_model_id,
-    normalize_openai_responses_input, parse_claude_cli_access_token, render_openai_responses_json,
-    route_anthropic_model, AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute,
-    ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    anthropic_beta_header, apply_claude_code_oauth_system_prompt, apply_gateway_model_directive,
+    extract_response_content, flatten_message_content, gateway_models_response,
+    inject_gateway_agent_instruction, is_anthropic_oauth_token, normalize_anthropic_model_id,
+    normalize_anthropic_request_model, normalize_codex_model_id, normalize_openai_responses_input,
+    parse_claude_cli_access_token, render_openai_responses_json, route_anthropic_model,
+    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
+    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -96,6 +97,103 @@ fn can_remap_claude_code_agent_alias_to_codex_model() {
     assert_eq!(normalize_codex_model_id("haiku"), "gpt-5.4-mini");
 
     clear_alias_env();
+}
+
+#[test]
+fn gateway_model_directive_overrides_agent_alias_per_request() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let mut req = AnthropicMessagesRequest {
+        model: "haiku".to_string(),
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::json!("[gateway-model: gpt-5.5]\nRun this subagent task."),
+        }],
+        system: None,
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: None,
+    };
+
+    let target = apply_gateway_model_directive(&mut req).unwrap();
+    req.model = target;
+
+    assert_eq!(req.model, "gpt-5.5");
+    assert_eq!(
+        route_anthropic_model(&req.model),
+        AnthropicModelRoute::Codex
+    );
+    assert_eq!(
+        req.messages[0].content,
+        serde_json::json!("Run this subagent task.")
+    );
+}
+
+#[test]
+fn gateway_model_directive_can_target_claude_versions() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let mut req = AnthropicMessagesRequest {
+        model: "haiku".to_string(),
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::json!([{
+                "type": "text",
+                "text": "[gateway-model: claude-opus-4-7]\nReview this carefully."
+            }]),
+        }],
+        system: None,
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: None,
+    };
+
+    let target = apply_gateway_model_directive(&mut req).unwrap();
+    req.model = target;
+
+    assert_eq!(req.model, "claude-opus-4-7");
+    assert_eq!(
+        route_anthropic_model(&req.model),
+        AnthropicModelRoute::Anthropic
+    );
+    assert_eq!(
+        req.messages[0].content[0]["text"],
+        serde_json::json!("Review this carefully.")
+    );
+}
+
+#[test]
+fn injects_gateway_agent_instruction_when_agent_tool_is_present() {
+    let mut req = AnthropicMessagesRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::json!("Use a subagent."),
+        }],
+        system: Some(serde_json::json!("Base system.")),
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: Some(vec![serde_json::json!({
+            "name": "Agent",
+            "description": "Launch a subagent",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "enum": ["sonnet", "opus", "haiku"]},
+                    "prompt": {"type": "string"}
+                }
+            }
+        })]),
+    };
+
+    inject_gateway_agent_instruction(&mut req);
+
+    let system = req.system.unwrap().as_str().unwrap().to_string();
+    assert!(system.contains("Base system."));
+    assert!(system.contains("[gateway-model: gpt-5.5]"));
+    assert!(system.contains("Agent.model to haiku"));
 }
 
 #[test]

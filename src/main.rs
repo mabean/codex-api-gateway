@@ -16,6 +16,8 @@ const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"]
 const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-4-6";
 const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-7";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
+const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
+const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.5]`, `[gateway-model: gpt-5.4]`, `[gateway-model: gpt-5.4-mini]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "gpt-5.5",
@@ -236,17 +238,21 @@ struct OpenAiResponsesRequest {
     user: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct AnthropicMessagesRequest {
     model: String,
     messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<Value>>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct AnthropicMessage {
     role: String,
     content: Value,
@@ -1376,6 +1382,112 @@ fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
     }
 }
 
+fn valid_gateway_model_directive_target(model: &str) -> bool {
+    let trimmed = model.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 128
+        && trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'/'))
+}
+
+fn strip_gateway_model_directive_from_text(text: &str) -> Option<(String, String)> {
+    let trimmed = text.trim_start();
+    let prefix_len = GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX.len();
+    if trimmed.len() < prefix_len
+        || !trimmed[..prefix_len].eq_ignore_ascii_case(GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX)
+    {
+        return None;
+    }
+    let close = trimmed.find(']')?;
+    let model = trimmed[prefix_len..close].trim();
+    if !valid_gateway_model_directive_target(model) {
+        return None;
+    }
+    let remainder = trimmed[close + 1..]
+        .trim_start_matches(['\r', '\n'])
+        .to_string();
+    Some((model.to_string(), remainder))
+}
+
+fn strip_gateway_model_directive_from_content(content: &mut Value) -> Option<String> {
+    match content {
+        Value::String(text) => {
+            let (model, stripped) = strip_gateway_model_directive_from_text(text)?;
+            *text = stripped;
+            Some(model)
+        }
+        Value::Array(blocks) => {
+            for block in blocks {
+                let Some(obj) = block.as_object_mut() else {
+                    continue;
+                };
+                let Some(text_value) = obj.get_mut("text") else {
+                    continue;
+                };
+                let Some(text) = text_value.as_str() else {
+                    continue;
+                };
+                let Some((model, stripped)) = strip_gateway_model_directive_from_text(text) else {
+                    continue;
+                };
+                *text_value = Value::String(stripped);
+                return Some(model);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn apply_gateway_model_directive(req: &mut AnthropicMessagesRequest) -> Option<String> {
+    for message in &mut req.messages {
+        if let Some(model) = strip_gateway_model_directive_from_content(&mut message.content) {
+            return Some(model);
+        }
+    }
+    None
+}
+
+fn anthropic_tool_name(tool: &Value) -> Option<&str> {
+    tool.get("name")
+        .and_then(Value::as_str)
+        .or_else(|| tool.get("function")?.get("name")?.as_str())
+}
+
+fn anthropic_tools_include_agent(tools: Option<&Vec<Value>>) -> bool {
+    tools
+        .into_iter()
+        .flatten()
+        .any(|tool| anthropic_tool_name(tool) == Some("Agent"))
+}
+
+fn append_gateway_agent_instruction(system: Option<Value>) -> Value {
+    match system {
+        None | Some(Value::Null) => {
+            Value::String(GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION.to_string())
+        }
+        Some(Value::String(text)) => Value::String(format!(
+            "{text}\n\n{GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION}"
+        )),
+        Some(Value::Array(mut blocks)) => {
+            blocks.push(text_system_block(GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION));
+            Value::Array(blocks)
+        }
+        Some(other) => Value::Array(vec![
+            other,
+            text_system_block(GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION),
+        ]),
+    }
+}
+
+fn inject_gateway_agent_instruction(req: &mut AnthropicMessagesRequest) {
+    if !anthropic_tools_include_agent(req.tools.as_ref()) {
+        return;
+    }
+    req.system = Some(append_gateway_agent_instruction(req.system.take()));
+}
+
 fn resolve_gateway_model_alias(model: &str) -> Option<String> {
     let short = model.rsplit('/').next().unwrap_or(model).to_lowercase();
     let (env_name, default_target) = match short.as_str() {
@@ -2272,22 +2384,42 @@ async fn universal_request_handler(
             }
         }
         ("POST", "/v1/messages") => {
-            let anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body) {
+            let mut anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body)
+            {
                 Ok(req) => req,
                 Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
             };
-            let route = route_anthropic_model(&anthropic_req.model);
+            let requested_model = anthropic_req.model.clone();
+            inject_gateway_agent_instruction(&mut anthropic_req);
+            let directive_model = apply_gateway_model_directive(&mut anthropic_req);
+            if let Some(model) = &directive_model {
+                anthropic_req.model = model.clone();
+            }
+            let route_model = directive_model.as_deref().unwrap_or(&anthropic_req.model);
+            let route = route_anthropic_model(route_model);
             eprintln!(
-                "[anthropic-route] model={} route={}",
-                anthropic_req.model,
+                "[anthropic-route] model={} effective_model={} route={}",
+                requested_model,
+                route_model,
                 match route {
                     AnthropicModelRoute::Codex => "codex",
                     AnthropicModelRoute::Anthropic => "anthropic",
                 }
             );
             if route == AnthropicModelRoute::Anthropic {
+                let upstream_body = match serde_json::to_vec(&anthropic_req) {
+                    Ok(body) => bytes::Bytes::from(body),
+                    Err(err) => {
+                        return Ok(anthropic_error_response(ProxyError::UpstreamProtocol {
+                            message: format!(
+                                "failed to serialize Anthropic request payload: {}",
+                                err
+                            ),
+                        }))
+                    }
+                };
                 match proxy
-                    .proxy_anthropic_upstream_request(body.clone(), &headers)
+                    .proxy_anthropic_upstream_request(upstream_body, &headers)
                     .await
                 {
                     Ok(upstream_response) => warp::reply::with_status(

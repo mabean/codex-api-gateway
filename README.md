@@ -207,8 +207,17 @@ CLAUDE_STREAM_OK
 Notes:
 - keep the proxy running locally on port `8080`
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` reduces unrelated first-party side traffic during proxy usage
-- Claude Code's `Agent` tool currently validates subagent model names before the gateway sees a request, and only accepts the aliases `sonnet`, `opus`, and `haiku`; to route one of those subagent lanes to Codex, set a gateway alias override such as `CODEX_GATEWAY_ALIAS_HAIKU=gpt-5.4-mini` and then select `haiku` in the Agent tool
+- Claude Code's `Agent` tool currently validates subagent model names before the gateway sees a request, and only accepts the aliases `sonnet`, `opus`, and `haiku`; when the gateway sees the `Agent` tool it injects an orchestrator instruction for per-call model routing through a prompt directive
 - the gateway is currently intended for local development use, not public exposure
+
+Agent subagent model routing:
+
+```text
+[gateway-model: gpt-5.5]
+Run this subagent task...
+```
+
+Because Claude Code only accepts `sonnet`, `opus`, or `haiku` in `Agent.model`, the orchestrator should set `Agent.model` to `haiku` and put `[gateway-model: MODEL_ID]` as the first line of the Agent prompt. The gateway removes that line before forwarding the subagent prompt and routes the call to the requested gateway model. `MODEL_ID` can be any model returned by `GET /v1/models`, including `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and the listed `claude-*` versions.
 
 Gateway alias overrides:
 
@@ -218,7 +227,8 @@ Gateway alias overrides:
 # CODEX_GATEWAY_ALIAS_OPUS=claude-opus-4-7
 # CODEX_GATEWAY_ALIAS_HAIKU=claude-haiku-4-5-20251001
 
-# Example: make Claude Code Agent's `haiku` lane use Codex.
+# Optional fallback: make every `haiku` request use Codex when no
+# [gateway-model: ...] directive is present.
 export CODEX_GATEWAY_ALIAS_HAIKU="gpt-5.4-mini"
 ```
 
