@@ -307,6 +307,19 @@ The proxy supports:
 - legacy auth files with token fields
 - OpenClaw-style auth profile files with `lastGood.openai-codex`
 
+### Codex upstream timeout and retry
+
+Codex/ChatGPT upstream calls are retried when the request times out, the response body read times out, or the upstream returns a retryable temporary status such as `429`, `502`, `503`, or `504`.
+
+Defaults:
+
+```bash
+CODEX_GATEWAY_CODEX_TIMEOUT_SECS=60
+CODEX_GATEWAY_CODEX_MAX_ATTEMPTS=2
+```
+
+The gateway clamps timeout to `5..300` seconds and attempts to `1..5`.
+
 ## API Endpoints
 
 ### Health Check

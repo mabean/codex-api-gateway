@@ -18,6 +18,12 @@ const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-7";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
 const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.5]`, `[gateway-model: gpt-5.4]`, `[gateway-model: gpt-5.4-mini]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
+const CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 60;
+const CODEX_UPSTREAM_TIMEOUT_SECS_MIN: u64 = 5;
+const CODEX_UPSTREAM_TIMEOUT_SECS_MAX: u64 = 300;
+const CODEX_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 2;
+const CODEX_UPSTREAM_MAX_ATTEMPTS_MIN: usize = 1;
+const CODEX_UPSTREAM_MAX_ATTEMPTS_MAX: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "gpt-5.5",
@@ -170,6 +176,40 @@ fn normalize_codex_instructions(raw: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn env_u64_clamped(name: &str, default: u64, min: u64, max: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+fn env_usize_clamped(name: &str, default: usize, min: usize, max: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+fn codex_upstream_timeout() -> Duration {
+    Duration::from_secs(env_u64_clamped(
+        "CODEX_GATEWAY_CODEX_TIMEOUT_SECS",
+        CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT,
+        CODEX_UPSTREAM_TIMEOUT_SECS_MIN,
+        CODEX_UPSTREAM_TIMEOUT_SECS_MAX,
+    ))
+}
+
+fn codex_upstream_max_attempts() -> usize {
+    env_usize_clamped(
+        "CODEX_GATEWAY_CODEX_MAX_ATTEMPTS",
+        CODEX_UPSTREAM_MAX_ATTEMPTS_DEFAULT,
+        CODEX_UPSTREAM_MAX_ATTEMPTS_MIN,
+        CODEX_UPSTREAM_MAX_ATTEMPTS_MAX,
+    )
 }
 use uuid::Uuid;
 use warp::{http::StatusCode, Filter, Reply};
@@ -519,6 +559,18 @@ impl ProxyError {
             Self::UpstreamBadRequest { .. }
             | Self::UpstreamUnavailable { .. }
             | Self::UpstreamProtocol { .. } => "api_error",
+        }
+    }
+    fn is_retryable_codex_upstream_error(&self) -> bool {
+        match self {
+            Self::UpstreamUnavailable { .. } => true,
+            Self::UpstreamProtocol { message } => {
+                let message = message.to_lowercase();
+                message.contains("timed out")
+                    || message.contains("deadline")
+                    || message.contains("connection closed")
+            }
+            _ => false,
         }
     }
     fn message(&self) -> String {
@@ -950,6 +1002,61 @@ impl ProxyServer {
         model: String,
         payload: Value,
     ) -> Result<(String, String), ProxyError> {
+        let timeout = codex_upstream_timeout();
+        let max_attempts = codex_upstream_max_attempts();
+        if verbose_tracing_enabled() {
+            let upstream_request_json = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "<serialize-failed>".to_string());
+            let upstream_request_prefix: String =
+                upstream_request_json.chars().take(1500).collect();
+            eprintln!(
+                "[upstream-request-body-bytes] {}",
+                upstream_request_json.len()
+            );
+            eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
+        }
+
+        let mut last_error: Option<ProxyError> = None;
+        for attempt in 1..=max_attempts {
+            eprintln!(
+                "[codex-upstream-attempt] model={} attempt={} max_attempts={} timeout_secs={}",
+                model,
+                attempt,
+                max_attempts,
+                timeout.as_secs()
+            );
+            match self
+                .send_codex_upstream_once(&model, &payload, timeout, attempt)
+                .await
+            {
+                Ok(body) => return Ok((model, body)),
+                Err(err) if attempt < max_attempts && err.is_retryable_codex_upstream_error() => {
+                    eprintln!(
+                        "[codex-upstream-retry] model={} attempt={} reason={}",
+                        model,
+                        attempt,
+                        err.message()
+                    );
+                    last_error = Some(err);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(
+            last_error.unwrap_or_else(|| ProxyError::UpstreamUnavailable {
+                message: "Codex upstream failed without a recorded error".to_string(),
+            }),
+        )
+    }
+
+    async fn send_codex_upstream_once(
+        &self,
+        model: &str,
+        payload: &Value,
+        timeout: Duration,
+        attempt: usize,
+    ) -> Result<String, ProxyError> {
         let mut request_builder = self
             .client
             .post(format!(
@@ -960,7 +1067,8 @@ impl ProxyServer {
             .header("Accept", "text/event-stream")
             .header("OpenAI-Beta", "responses=experimental")
             .header("originator", "pi")
-            .header("User-Agent", "pi (codex-api-gateway)");
+            .header("User-Agent", "pi (codex-api-gateway)")
+            .timeout(timeout);
         if let Some(access_token) = &self.auth_data.access_token {
             request_builder =
                 request_builder.header("Authorization", format!("Bearer {}", access_token));
@@ -977,18 +1085,14 @@ impl ProxyServer {
         }
         let session_id = Uuid::new_v4();
         request_builder = request_builder.header("session_id", session_id.to_string());
-        if verbose_tracing_enabled() {
-            let upstream_request_json = serde_json::to_string(&payload)
-                .unwrap_or_else(|_| "<serialize-failed>".to_string());
-            let upstream_request_prefix: String =
-                upstream_request_json.chars().take(1500).collect();
-            eprintln!(
-                "[upstream-request-body-bytes] {}",
-                upstream_request_json.len()
-            );
-            eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
-        }
         let response = request_builder.json(&payload).send().await.map_err(|e| {
+            eprintln!(
+                "[codex-upstream-send-error] model={} attempt={} error={}",
+                model, attempt, e
+            );
+            if e.is_timeout() {
+                eprintln!("[codex-upstream-timeout] stage=send attempt={}", attempt);
+            }
             ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to upstream: {}", e),
             }
@@ -997,12 +1101,22 @@ impl ProxyServer {
         let headers = format!("{:?}", response.headers());
         let body = response.text().await.map_err(|e| {
             eprintln!("[upstream-read-error] {}", e);
+            if e.is_timeout() {
+                eprintln!("[codex-upstream-timeout] stage=read attempt={}", attempt);
+                eprintln!("[request-outcome] upstream_read_failed");
+                return ProxyError::UpstreamUnavailable {
+                    message: format!("timed out reading upstream response body: {}", e),
+                };
+            }
             eprintln!("[request-outcome] upstream_read_failed");
             ProxyError::UpstreamProtocol {
                 message: format!("failed to read upstream response body: {}", e),
             }
         })?;
-        eprintln!("[upstream-response-status] {}", status);
+        eprintln!(
+            "[upstream-response-status] {} attempt={} model={}",
+            status, attempt, model
+        );
         if verbose_tracing_enabled() {
             let body_prefix: String = body.chars().take(1200).collect();
             eprintln!("[upstream-response-headers] {}", headers);
@@ -1024,7 +1138,7 @@ impl ProxyServer {
             return Err(classify_upstream_error(status, message));
         }
         eprintln!("[request-outcome] upstream_success");
-        Ok((model, body))
+        Ok(body)
     }
 
     async fn upstream_sse_text(

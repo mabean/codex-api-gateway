@@ -4,12 +4,13 @@ use tempfile::NamedTempFile;
 
 use crate::{
     anthropic_beta_header, apply_claude_code_oauth_system_prompt, apply_gateway_model_directive,
-    extract_response_content, flatten_message_content, gateway_models_response,
-    inject_gateway_agent_instruction, is_anthropic_oauth_token, normalize_anthropic_model_id,
-    normalize_anthropic_request_model, normalize_codex_model_id, normalize_openai_responses_input,
-    parse_claude_cli_access_token, render_openai_responses_json, route_anthropic_model,
-    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
-    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    codex_upstream_max_attempts, codex_upstream_timeout, extract_response_content,
+    flatten_message_content, gateway_models_response, inject_gateway_agent_instruction,
+    is_anthropic_oauth_token, normalize_anthropic_model_id, normalize_anthropic_request_model,
+    normalize_codex_model_id, normalize_openai_responses_input, parse_claude_cli_access_token,
+    render_openai_responses_json, route_anthropic_model, AnthropicMessage,
+    AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest, ChatMessage,
+    OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -17,6 +18,8 @@ const ALIAS_ENV_KEYS: &[&str] = &[
     "CODEX_GATEWAY_ALIAS_SONNET",
     "CODEX_GATEWAY_ALIAS_OPUS",
     "CODEX_GATEWAY_ALIAS_HAIKU",
+    "CODEX_GATEWAY_CODEX_TIMEOUT_SECS",
+    "CODEX_GATEWAY_CODEX_MAX_ATTEMPTS",
 ];
 
 fn clear_alias_env() {
@@ -151,6 +154,29 @@ fn gateway_model_directive_ignores_non_ascii_text_without_panicking() {
 
     assert!(apply_gateway_model_directive(&mut req).is_none());
     assert_eq!(req.model, "claude-sonnet-4-6");
+}
+
+#[test]
+fn codex_upstream_retry_settings_are_configurable_and_clamped() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    assert_eq!(codex_upstream_timeout().as_secs(), 60);
+    assert_eq!(codex_upstream_max_attempts(), 2);
+
+    std::env::set_var("CODEX_GATEWAY_CODEX_TIMEOUT_SECS", "1");
+    std::env::set_var("CODEX_GATEWAY_CODEX_MAX_ATTEMPTS", "99");
+
+    assert_eq!(codex_upstream_timeout().as_secs(), 5);
+    assert_eq!(codex_upstream_max_attempts(), 5);
+
+    std::env::set_var("CODEX_GATEWAY_CODEX_TIMEOUT_SECS", "75");
+    std::env::set_var("CODEX_GATEWAY_CODEX_MAX_ATTEMPTS", "3");
+
+    assert_eq!(codex_upstream_timeout().as_secs(), 75);
+    assert_eq!(codex_upstream_max_attempts(), 3);
+
+    clear_alias_env();
 }
 
 #[test]
