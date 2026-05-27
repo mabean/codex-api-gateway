@@ -24,6 +24,8 @@ const CODEX_UPSTREAM_TIMEOUT_SECS_MAX: u64 = 300;
 const CODEX_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 2;
 const CODEX_UPSTREAM_MAX_ATTEMPTS_MIN: usize = 1;
 const CODEX_UPSTREAM_MAX_ATTEMPTS_MAX: usize = 5;
+const CODEX_AGENT_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 30;
+const CODEX_AGENT_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 1;
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "gpt-5.5",
@@ -210,6 +212,60 @@ fn codex_upstream_max_attempts() -> usize {
         CODEX_UPSTREAM_MAX_ATTEMPTS_MIN,
         CODEX_UPSTREAM_MAX_ATTEMPTS_MAX,
     )
+}
+
+#[derive(Clone, Copy)]
+struct CodexUpstreamRetryConfig {
+    timeout: Duration,
+    max_attempts: usize,
+    policy_name: &'static str,
+}
+
+fn codex_upstream_retry_config() -> CodexUpstreamRetryConfig {
+    CodexUpstreamRetryConfig {
+        timeout: codex_upstream_timeout(),
+        max_attempts: codex_upstream_max_attempts(),
+        policy_name: "default",
+    }
+}
+
+fn codex_agent_upstream_timeout() -> Duration {
+    Duration::from_secs(env_u64_clamped(
+        "CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS",
+        CODEX_AGENT_UPSTREAM_TIMEOUT_SECS_DEFAULT,
+        CODEX_UPSTREAM_TIMEOUT_SECS_MIN,
+        CODEX_UPSTREAM_TIMEOUT_SECS_MAX,
+    ))
+}
+
+fn codex_agent_upstream_max_attempts() -> usize {
+    env_usize_clamped(
+        "CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS",
+        CODEX_AGENT_UPSTREAM_MAX_ATTEMPTS_DEFAULT,
+        CODEX_UPSTREAM_MAX_ATTEMPTS_MIN,
+        CODEX_UPSTREAM_MAX_ATTEMPTS_MAX,
+    )
+}
+
+fn codex_agent_upstream_retry_config() -> CodexUpstreamRetryConfig {
+    CodexUpstreamRetryConfig {
+        timeout: codex_agent_upstream_timeout(),
+        max_attempts: codex_agent_upstream_max_attempts(),
+        policy_name: "claude-code-agent",
+    }
+}
+
+fn codex_retry_config_for_anthropic_codex(
+    requested_model: &str,
+    directive_model: Option<&str>,
+) -> CodexUpstreamRetryConfig {
+    let came_from_claude_agent_alias = directive_model.is_some()
+        && route_anthropic_model(requested_model) == AnthropicModelRoute::Anthropic;
+    if came_from_claude_agent_alias {
+        codex_agent_upstream_retry_config()
+    } else {
+        codex_upstream_retry_config()
+    }
 }
 use uuid::Uuid;
 use warp::{http::StatusCode, Filter, Reply};
@@ -1001,9 +1057,10 @@ impl ProxyServer {
         &self,
         model: String,
         payload: Value,
+        retry_config: CodexUpstreamRetryConfig,
     ) -> Result<(String, String), ProxyError> {
-        let timeout = codex_upstream_timeout();
-        let max_attempts = codex_upstream_max_attempts();
+        let timeout = retry_config.timeout;
+        let max_attempts = retry_config.max_attempts;
         if verbose_tracing_enabled() {
             let upstream_request_json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| "<serialize-failed>".to_string());
@@ -1019,11 +1076,12 @@ impl ProxyServer {
         let mut last_error: Option<ProxyError> = None;
         for attempt in 1..=max_attempts {
             eprintln!(
-                "[codex-upstream-attempt] model={} attempt={} max_attempts={} timeout_secs={}",
+                "[codex-upstream-attempt] model={} attempt={} max_attempts={} timeout_secs={} policy={}",
                 model,
                 attempt,
                 max_attempts,
-                timeout.as_secs()
+                timeout.as_secs(),
+                retry_config.policy_name
             );
             match self
                 .send_codex_upstream_once(&model, &payload, timeout, attempt)
@@ -1141,9 +1199,10 @@ impl ProxyServer {
         Ok(body)
     }
 
-    async fn upstream_sse_text(
+    async fn upstream_sse_text_with_retry(
         &self,
         chat_req: ChatCompletionsRequest,
+        retry_config: CodexUpstreamRetryConfig,
     ) -> Result<(String, String), ProxyError> {
         let responses_req = self.convert_chat_to_responses(chat_req)?;
         let model = responses_req.model.clone();
@@ -1151,7 +1210,8 @@ impl ProxyServer {
             serde_json::to_value(responses_req).map_err(|e| ProxyError::UpstreamProtocol {
                 message: format!("failed to serialize upstream request payload: {}", e),
             })?;
-        self.upstream_sse_text_for_payload(model, payload).await
+        self.upstream_sse_text_for_payload(model, payload, retry_config)
+            .await
     }
 
     async fn proxy_request_stream(
@@ -1159,7 +1219,19 @@ impl ProxyServer {
         chat_req: ChatCompletionsRequest,
         api_family: ApiFamily,
     ) -> Result<(String, String), ProxyError> {
-        let (model, sse_text) = self.upstream_sse_text(chat_req).await?;
+        self.proxy_request_stream_with_retry(chat_req, api_family, codex_upstream_retry_config())
+            .await
+    }
+
+    async fn proxy_request_stream_with_retry(
+        &self,
+        chat_req: ChatCompletionsRequest,
+        api_family: ApiFamily,
+        retry_config: CodexUpstreamRetryConfig,
+    ) -> Result<(String, String), ProxyError> {
+        let (model, sse_text) = self
+            .upstream_sse_text_with_retry(chat_req, retry_config)
+            .await?;
         if verbose_tracing_enabled() {
             eprintln!(
                 "[raw-codex-sse-begin]
@@ -1222,7 +1294,18 @@ impl ProxyServer {
         &self,
         chat_req: ChatCompletionsRequest,
     ) -> Result<ChatCompletionsResponse, ProxyError> {
-        let (model, body) = self.upstream_sse_text(chat_req).await?;
+        self.proxy_request_with_retry(chat_req, codex_upstream_retry_config())
+            .await
+    }
+
+    async fn proxy_request_with_retry(
+        &self,
+        chat_req: ChatCompletionsRequest,
+        retry_config: CodexUpstreamRetryConfig,
+    ) -> Result<ChatCompletionsResponse, ProxyError> {
+        let (model, body) = self
+            .upstream_sse_text_with_retry(chat_req, retry_config)
+            .await?;
         let response_content = extract_response_content(&body)?;
         Ok(ChatCompletionsResponse {
             id: format!("chatcmpl-{}", Uuid::new_v4()),
@@ -1251,7 +1334,7 @@ impl ProxyServer {
     ) -> Result<Value, ProxyError> {
         let (model, payload) = self.convert_openai_responses_request(req)?;
         let (_model, body) = self
-            .upstream_sse_text_for_payload(model.clone(), payload)
+            .upstream_sse_text_for_payload(model.clone(), payload, codex_upstream_retry_config())
             .await?;
         let events = parse_codex_sse_to_events(&body)?;
         Ok(render_openai_responses_json(&events, &model))
@@ -2459,7 +2542,10 @@ async fn universal_request_handler(
                     Ok(v) => v,
                     Err(err) => return Ok(openai_error_response(err)),
                 };
-                match proxy.upstream_sse_text_for_payload(model, payload).await {
+                match proxy
+                    .upstream_sse_text_for_payload(model, payload, codex_upstream_retry_config())
+                    .await
+                {
                     Ok((_model, sse_body)) => {
                         warp::reply::with_header(sse_body, "content-type", "text/event-stream")
                             .into_response()
@@ -2549,13 +2635,21 @@ async fn universal_request_handler(
             } else {
                 let stream = anthropic_req.stream.unwrap_or(false);
                 let model = anthropic_req.model.clone();
+                let retry_config = codex_retry_config_for_anthropic_codex(
+                    &requested_model,
+                    directive_model.as_deref(),
+                );
                 let chat_req = match proxy.convert_anthropic_to_chat(anthropic_req) {
                     Ok(req) => req,
                     Err(err) => return Ok(anthropic_error_response(err)),
                 };
                 if stream {
                     match proxy
-                        .proxy_request_stream(chat_req, ApiFamily::Anthropic)
+                        .proxy_request_stream_with_retry(
+                            chat_req,
+                            ApiFamily::Anthropic,
+                            retry_config,
+                        )
                         .await
                     {
                         Ok((_model, sse_body)) => {
@@ -2565,7 +2659,7 @@ async fn universal_request_handler(
                         Err(err) => anthropic_error_response(err),
                     }
                 } else {
-                    match proxy.proxy_request(chat_req).await {
+                    match proxy.proxy_request_with_retry(chat_req, retry_config).await {
                         Ok(response) => warp::reply::json(&convert_chat_to_anthropic(
                             &normalize_codex_model_id(&model),
                             response,

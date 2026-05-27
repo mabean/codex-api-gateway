@@ -4,13 +4,14 @@ use tempfile::NamedTempFile;
 
 use crate::{
     anthropic_beta_header, apply_claude_code_oauth_system_prompt, apply_gateway_model_directive,
-    codex_upstream_max_attempts, codex_upstream_timeout, extract_response_content,
-    flatten_message_content, gateway_models_response, inject_gateway_agent_instruction,
-    is_anthropic_oauth_token, normalize_anthropic_model_id, normalize_anthropic_request_model,
-    normalize_codex_model_id, normalize_openai_responses_input, parse_claude_cli_access_token,
-    render_openai_responses_json, route_anthropic_model, AnthropicMessage,
-    AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest, ChatMessage,
-    OpenAiResponsesRequest, ProxyError, ProxyServer,
+    codex_agent_upstream_max_attempts, codex_agent_upstream_timeout,
+    codex_retry_config_for_anthropic_codex, codex_upstream_max_attempts, codex_upstream_timeout,
+    extract_response_content, flatten_message_content, gateway_models_response,
+    inject_gateway_agent_instruction, is_anthropic_oauth_token, normalize_anthropic_model_id,
+    normalize_anthropic_request_model, normalize_codex_model_id, normalize_openai_responses_input,
+    parse_claude_cli_access_token, render_openai_responses_json, route_anthropic_model,
+    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
+    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -20,6 +21,8 @@ const ALIAS_ENV_KEYS: &[&str] = &[
     "CODEX_GATEWAY_ALIAS_HAIKU",
     "CODEX_GATEWAY_CODEX_TIMEOUT_SECS",
     "CODEX_GATEWAY_CODEX_MAX_ATTEMPTS",
+    "CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS",
+    "CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS",
 ];
 
 fn clear_alias_env() {
@@ -177,6 +180,40 @@ fn codex_upstream_retry_settings_are_configurable_and_clamped() {
     assert_eq!(codex_upstream_max_attempts(), 3);
 
     clear_alias_env();
+}
+
+#[test]
+fn codex_agent_upstream_retry_settings_are_short_by_default() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    assert_eq!(codex_agent_upstream_timeout().as_secs(), 30);
+    assert_eq!(codex_agent_upstream_max_attempts(), 1);
+
+    std::env::set_var("CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS", "2");
+    std::env::set_var("CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS", "9");
+
+    assert_eq!(codex_agent_upstream_timeout().as_secs(), 5);
+    assert_eq!(codex_agent_upstream_max_attempts(), 5);
+
+    clear_alias_env();
+}
+
+#[test]
+fn codex_agent_directive_uses_agent_retry_policy() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let retry_config =
+        codex_retry_config_for_anthropic_codex("claude-haiku-4-5-20251001", Some("gpt-5.5"));
+    assert_eq!(retry_config.timeout.as_secs(), 30);
+    assert_eq!(retry_config.max_attempts, 1);
+    assert_eq!(retry_config.policy_name, "claude-code-agent");
+
+    let direct_config = codex_retry_config_for_anthropic_codex("gpt-5.5", None);
+    assert_eq!(direct_config.timeout.as_secs(), 60);
+    assert_eq!(direct_config.max_attempts, 2);
+    assert_eq!(direct_config.policy_name, "default");
 }
 
 #[test]

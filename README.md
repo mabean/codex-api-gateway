@@ -320,6 +320,15 @@ CODEX_GATEWAY_CODEX_MAX_ATTEMPTS=2
 
 The gateway clamps timeout to `5..300` seconds and attempts to `1..5`.
 
+Claude Code `Agent` requests that use `[gateway-model: ...]` get a shorter policy by default because Claude Code already retries the outer request:
+
+```bash
+CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS=30
+CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS=1
+```
+
+These values use the same clamps as the default Codex upstream policy.
+
 ## API Endpoints
 
 ### Health Check
