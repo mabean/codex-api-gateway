@@ -131,6 +131,29 @@ fn gateway_model_directive_overrides_agent_alias_per_request() {
 }
 
 #[test]
+fn gateway_model_directive_ignores_non_ascii_text_without_panicking() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let mut req = AnthropicMessagesRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::json!(
+                "Claude code сейчас должен работать через специальный gateway."
+            ),
+        }],
+        system: None,
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: None,
+    };
+
+    assert!(apply_gateway_model_directive(&mut req).is_none());
+    assert_eq!(req.model, "claude-sonnet-4-6");
+}
+
+#[test]
 fn gateway_model_directive_can_target_claude_versions() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();

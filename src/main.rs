@@ -1394,9 +1394,8 @@ fn valid_gateway_model_directive_target(model: &str) -> bool {
 fn strip_gateway_model_directive_from_text(text: &str) -> Option<(String, String)> {
     let trimmed = text.trim_start();
     let prefix_len = GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX.len();
-    if trimmed.len() < prefix_len
-        || !trimmed[..prefix_len].eq_ignore_ascii_case(GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX)
-    {
+    let prefix = trimmed.get(..prefix_len)?;
+    if !prefix.eq_ignore_ascii_case(GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX) {
         return None;
     }
     let close = trimmed.find(']')?;
