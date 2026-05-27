@@ -1494,10 +1494,7 @@ impl ProxyServer {
             let first_stream = stream::once(async move { Ok::<_, std::io::Error>(first_chunk) });
             let rest_stream = body_stream.map(|chunk| {
                 chunk.map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Anthropic upstream stream error: {e}"),
-                    )
+                    std::io::Error::other(format!("Anthropic upstream stream error: {e}"))
                 })
             });
             warp::hyper::Body::wrap_stream(first_stream.chain(rest_stream))

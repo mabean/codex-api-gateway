@@ -62,12 +62,11 @@ pub fn parse_codex_sse_to_events(
             "response.output_item.added" | "response.output_item.done" => {
                 if let Some(item) = event.get("item") {
                     match item.get("type").and_then(Value::as_str) {
-                        Some("message") => {
-                            if !saw_message_start {
-                                saw_message_start = true;
-                                events.push(CanonicalStreamEvent::MessageStart);
-                            }
+                        Some("message") if !saw_message_start => {
+                            saw_message_start = true;
+                            events.push(CanonicalStreamEvent::MessageStart);
                         }
+                        Some("message") => {}
                         Some("function_call") => {
                             saw_tool_use = true;
                             let call_id = item
