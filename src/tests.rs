@@ -3,10 +3,11 @@ use std::fs;
 use tempfile::NamedTempFile;
 
 use crate::{
-    extract_response_content, flatten_message_content, normalize_codex_model_id,
-    normalize_openai_responses_input, render_openai_responses_json, route_anthropic_model,
-    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
-    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    anthropic_beta_header, apply_claude_code_oauth_system_prompt, extract_response_content,
+    flatten_message_content, is_anthropic_oauth_token, normalize_codex_model_id,
+    normalize_openai_responses_input, parse_claude_cli_access_token, render_openai_responses_json,
+    route_anthropic_model, AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute,
+    ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
 };
 
 #[test]
@@ -14,15 +15,15 @@ fn normalizes_provider_prefixed_model_ids() {
     assert_eq!(normalize_codex_model_id("openai/gpt-5.4"), "gpt-5.4");
     assert_eq!(normalize_codex_model_id("gpt-5.4"), "gpt-5.4");
     assert_eq!(
-        normalize_codex_model_id("anthropic/claude-sonnet-4-5"),
-        "claude-sonnet-4-5"
+        normalize_codex_model_id("anthropic/claude-sonnet-4-6"),
+        "claude-sonnet-4-6"
     );
 }
 
 #[test]
 fn routes_anthropic_ingress_by_model_family() {
     assert_eq!(
-        route_anthropic_model("claude-sonnet-4-5"),
+        route_anthropic_model("claude-sonnet-4-6"),
         AnthropicModelRoute::Anthropic
     );
     assert_eq!(
@@ -34,6 +35,68 @@ fn routes_anthropic_ingress_by_model_family() {
         route_anthropic_model("openai/gpt-5.4"),
         AnthropicModelRoute::Codex
     );
+}
+
+#[test]
+fn detects_anthropic_oauth_tokens() {
+    assert!(is_anthropic_oauth_token("sk-ant-oat01-test-token"));
+    assert!(!is_anthropic_oauth_token("sk-ant-api03-test-token"));
+}
+
+#[test]
+fn parses_claude_cli_credentials_contract() {
+    let token = parse_claude_cli_access_token(
+        r#"{
+            "claudeAiOauth": {
+                "accessToken": "sk-ant-oat01-test-token",
+                "refreshToken": "refresh-token",
+                "expiresAt": 1893456000000
+            }
+        }"#,
+    );
+    assert_eq!(token.as_deref(), Some("sk-ant-oat01-test-token"));
+
+    assert!(parse_claude_cli_access_token(
+        r#"{"claudeAiOauth":{"accessToken":"","expiresAt":1893456000000}}"#
+    )
+    .is_none());
+}
+
+#[test]
+fn builds_claude_oauth_beta_header_from_claude_code_contract() {
+    let mut headers = warp::http::HeaderMap::new();
+    headers.insert("anthropic-beta", "custom-beta-2026-01-01".parse().unwrap());
+
+    let beta = anthropic_beta_header(true, &headers).unwrap();
+
+    assert!(beta.contains("oauth-2025-04-20"));
+    assert!(beta.contains("custom-beta-2026-01-01"));
+    assert!(!beta.contains("claude-code-20250219"));
+    assert!(!beta.contains("fine-grained-tool-streaming-2025-05-14"));
+}
+
+#[test]
+fn prefixes_claude_oauth_system_prompt_with_billing_marker() {
+    let body = br#"{
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 64,
+        "system": "Existing instruction.",
+        "messages": [{"role": "user", "content": "hello"}]
+    }"#;
+
+    let normalized = apply_claude_code_oauth_system_prompt(body).unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+    let system = payload["system"].as_array().unwrap();
+
+    assert_eq!(
+        system[0]["text"].as_str().unwrap(),
+        "x-anthropic-billing-header: cc_version=2.1.119.unknown; cc_entrypoint=unknown; cch=00000;"
+    );
+    assert_eq!(
+        system[1]["text"].as_str().unwrap(),
+        "You are Claude Code, Anthropic's official CLI for Claude."
+    );
+    assert_eq!(system[2]["text"].as_str().unwrap(), "Existing instruction.");
 }
 
 #[tokio::test]

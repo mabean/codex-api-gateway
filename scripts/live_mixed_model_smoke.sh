@@ -5,10 +5,10 @@ PORT="${PORT:-18080}"
 AUTH_PATH="${AUTH_PATH:-$HOME/.codex/auth.json}"
 UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL:-https://chatgpt.com/backend-api}"
 ANTHROPIC_UPSTREAM_BASE_URL="${ANTHROPIC_UPSTREAM_BASE_URL:-https://api.anthropic.com}"
-ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_UPSTREAM_API_KEY:-}}"
+ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_UPSTREAM_API_KEY:-${ANTHROPIC_OAUTH_TOKEN:-}}}"
 LOG="${LOG:-/tmp/codex-gw-mixed-model.log}"
 OUT_DIR="${OUT_DIR:-/tmp/codex-gw-mixed-model}"
-MODELS=(${MODELS:-gpt-5.4 claude-sonnet-4-5 gpt-5.4})
+MODELS=(${MODELS:-gpt-5.4 claude-sonnet-4-6 gpt-5.4})
 
 if [[ ! -f "$AUTH_PATH" ]]; then
   echo "missing Codex auth file: $AUTH_PATH" >&2
@@ -19,8 +19,7 @@ for model in "${MODELS[@]}"; do
   case "$model" in
     claude-*|anthropic/claude-*)
       if [[ -z "$ANTHROPIC_AUTH_TOKEN" ]]; then
-        echo "model '$model' needs Anthropic upstream auth; set ANTHROPIC_UPSTREAM_API_KEY or ANTHROPIC_AUTH_TOKEN" >&2
-        exit 2
+        echo "model '$model' will use local Claude Code credentials if available; otherwise set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_UPSTREAM_API_KEY" >&2
       fi
       ;;
   esac
@@ -106,4 +105,4 @@ echo "responses: $OUT_DIR"
 echo "gateway log: $LOG"
 echo
 echo "routing evidence:"
-grep -E '^\[anthropic-route\]|POST /v1/messages|/codex/responses|Anthropic upstream|upstream-response-status|request-outcome|codex-events-summary' "$LOG" || true
+grep -E '^\[anthropic-route\]|POST /v1/messages|/codex/responses|Anthropic upstream|anthropic-upstream-response-status|upstream-response-status|request-outcome|codex-events-summary' "$LOG" || true

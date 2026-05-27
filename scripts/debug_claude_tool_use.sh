@@ -37,7 +37,7 @@ import os, subprocess, signal
 out = open(os.environ['OUT'], 'w')
 cmd = [
     'claude','-p','--dangerously-skip-permissions','--output-format','stream-json','--verbose',
-    '--model','claude-sonnet-4-5', os.environ['PROMPT']
+    '--model','claude-sonnet-4-6', os.environ['PROMPT']
 ]
 p = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, env=os.environ.copy())
 try:

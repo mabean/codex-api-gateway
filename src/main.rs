@@ -5,9 +5,14 @@ use clap::Parser;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::time::Duration;
 use streaming::{
     parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse, CanonicalStreamEvent,
 };
+
+const CLAUDE_CODE_VERSION: &str = "2.1.119";
+const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
+const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
 
 pub(crate) fn verbose_tracing_enabled() -> bool {
     matches!(
@@ -456,6 +461,27 @@ struct OpenClawProfile {
     account_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ClaudeCliCredentialsFile {
+    #[serde(rename = "claudeAiOauth")]
+    claude_ai_oauth: Option<ClaudeCliOauth>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCliOauth {
+    #[serde(rename = "accessToken")]
+    access_token: Option<String>,
+    #[serde(rename = "expiresAt")]
+    expires_at: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+enum AnthropicUpstreamAuth {
+    ApiKey(String),
+    OAuthToken(String),
+    PassthroughAuthorization(reqwest::header::HeaderValue),
+}
+
 struct ProxyServer {
     client: Client,
     auth_data: AuthData,
@@ -493,7 +519,8 @@ impl ProxyServer {
             upstream_base_url: upstream_base_url.to_string(),
             anthropic_upstream_base_url: anthropic_upstream_base_url.to_string(),
             anthropic_auth_token: anthropic_auth_token
-                .or_else(|| std::env::var("ANTHROPIC_UPSTREAM_API_KEY").ok()),
+                .or_else(|| std::env::var("ANTHROPIC_UPSTREAM_API_KEY").ok())
+                .and_then(normalize_optional_secret),
         })
     }
 
@@ -543,6 +570,41 @@ impl ProxyServer {
             }
         }
         anyhow::bail!("unsupported auth file format")
+    }
+
+    async fn resolve_anthropic_upstream_auth(
+        &self,
+        inbound_headers: &warp::http::HeaderMap,
+    ) -> Option<AnthropicUpstreamAuth> {
+        if let Some(token) = &self.anthropic_auth_token {
+            return Some(anthropic_auth_from_token(token.clone()));
+        }
+        if let Some(token) = std::env::var("ANTHROPIC_OAUTH_TOKEN")
+            .ok()
+            .and_then(normalize_optional_secret)
+        {
+            return Some(AnthropicUpstreamAuth::OAuthToken(token));
+        }
+        if let Some(token) = read_claude_cli_access_token().await {
+            return Some(AnthropicUpstreamAuth::OAuthToken(token));
+        }
+        if let Some(authorization) = inbound_headers.get("authorization") {
+            if let Ok(value) = authorization.to_str() {
+                if let Some(token) = value.strip_prefix("Bearer ") {
+                    if is_anthropic_oauth_token(token) {
+                        return Some(AnthropicUpstreamAuth::OAuthToken(token.to_string()));
+                    }
+                }
+            }
+            return Some(AnthropicUpstreamAuth::PassthroughAuthorization(
+                authorization.clone(),
+            ));
+        }
+        inbound_headers
+            .get("x-api-key")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !is_local_proxy_api_key(value))
+            .map(|value| anthropic_auth_from_token(value.to_string()))
     }
 
     fn convert_anthropic_to_chat(
@@ -986,43 +1048,76 @@ impl ProxyServer {
                 "{}/v1/messages",
                 self.anthropic_upstream_base_url.trim_end_matches('/')
             ))
-            .header("Content-Type", "application/json")
-            .header("User-Agent", "codex-api-gateway/anthropic-router");
+            .header("Content-Type", "application/json");
 
         if let Some(accept) = inbound_headers.get("accept") {
             request_builder = request_builder.header("Accept", accept);
+        } else {
+            request_builder = request_builder.header("Accept", "application/json");
         }
         if let Some(version) = inbound_headers.get("anthropic-version") {
             request_builder = request_builder.header("anthropic-version", version);
         } else {
             request_builder = request_builder.header("anthropic-version", "2023-06-01");
         }
-        for beta in inbound_headers.get_all("anthropic-beta") {
-            request_builder = request_builder.header("anthropic-beta", beta);
+        request_builder =
+            request_builder.header("anthropic-dangerous-direct-browser-access", "true");
+
+        let auth = self
+            .resolve_anthropic_upstream_auth(inbound_headers)
+            .await
+            .ok_or_else(|| ProxyError::Auth {
+                message: "no Anthropic upstream auth found; set ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_UPSTREAM_API_KEY, or sign in with Claude Code locally".to_string(),
+            })?;
+
+        let oauth = matches!(auth, AnthropicUpstreamAuth::OAuthToken(_));
+        if let Some(beta_header) = anthropic_beta_header(oauth, inbound_headers) {
+            request_builder = request_builder.header("anthropic-beta", beta_header);
         }
 
-        if let Some(token) = &self.anthropic_auth_token {
-            request_builder = request_builder.header("x-api-key", token);
-        } else if let Some(authorization) = inbound_headers.get("authorization") {
-            request_builder = request_builder.header("authorization", authorization);
-        } else if let Some(api_key) = inbound_headers
-            .get("x-api-key")
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| !is_local_proxy_api_key(value))
-        {
-            request_builder = request_builder.header("x-api-key", api_key);
-        } else {
-            return Err(ProxyError::Auth {
-                message: "no Anthropic upstream auth found; set ANTHROPIC_UPSTREAM_API_KEY or send a real Anthropic authorization header".to_string(),
-            });
+        match auth {
+            AnthropicUpstreamAuth::OAuthToken(token) => {
+                request_builder = request_builder
+                    .header("authorization", format!("Bearer {token}"))
+                    .header(
+                        "User-Agent",
+                        format!("claude-cli/{CLAUDE_CODE_VERSION} (external, cli)"),
+                    )
+                    .header("anthropic-client-platform", "claude_code_cli")
+                    .header("x-app", "cli");
+                let body = apply_claude_code_oauth_system_prompt(&body)?;
+                return self
+                    .send_anthropic_upstream_request(request_builder, body)
+                    .await;
+            }
+            AnthropicUpstreamAuth::ApiKey(token) => {
+                request_builder = request_builder
+                    .header("x-api-key", token)
+                    .header("User-Agent", "codex-api-gateway/anthropic-router");
+            }
+            AnthropicUpstreamAuth::PassthroughAuthorization(authorization) => {
+                request_builder = request_builder
+                    .header("authorization", authorization)
+                    .header("User-Agent", "codex-api-gateway/anthropic-router");
+            }
         }
 
+        self.send_anthropic_upstream_request(request_builder, body)
+            .await
+    }
+
+    async fn send_anthropic_upstream_request(
+        &self,
+        request_builder: reqwest::RequestBuilder,
+        body: bytes::Bytes,
+    ) -> Result<UpstreamHttpResponse, ProxyError> {
         let response = request_builder.body(body).send().await.map_err(|e| {
             ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to Anthropic upstream: {}", e),
             }
         })?;
         let status = response.status();
+        eprintln!("[anthropic-upstream-response-status] {}", status);
         let content_type = response
             .headers()
             .get("content-type")
@@ -1150,6 +1245,164 @@ fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
 
 fn is_local_proxy_api_key(value: &str) -> bool {
     value.trim().eq_ignore_ascii_case("local-proxy")
+}
+
+fn is_anthropic_oauth_token(value: &str) -> bool {
+    value.contains("sk-ant-oat")
+}
+
+fn anthropic_auth_from_token(token: String) -> AnthropicUpstreamAuth {
+    if is_anthropic_oauth_token(&token) {
+        AnthropicUpstreamAuth::OAuthToken(token)
+    } else {
+        AnthropicUpstreamAuth::ApiKey(token)
+    }
+}
+
+fn normalize_optional_secret(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn parse_claude_cli_access_token(raw: &str) -> Option<String> {
+    let credentials = serde_json::from_str::<ClaudeCliCredentialsFile>(raw).ok()?;
+    let oauth = credentials.claude_ai_oauth?;
+    let access_token = oauth.access_token?.trim().to_string();
+    if access_token.is_empty() {
+        return None;
+    }
+    if !matches!(oauth.expires_at, Some(expires_at) if expires_at.is_finite() && expires_at > 0.0) {
+        return None;
+    }
+    Some(access_token)
+}
+
+fn expand_home_path(path: &str) -> Option<String> {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").ok()?;
+        Some(format!("{home}/{rest}"))
+    } else {
+        Some(path.to_string())
+    }
+}
+
+fn claude_keychain_enabled() -> bool {
+    !matches!(
+        std::env::var("CODEX_GATEWAY_DISABLE_CLAUDE_KEYCHAIN").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
+async fn read_claude_cli_keychain_access_token() -> Option<String> {
+    if !cfg!(target_os = "macos") || !claude_keychain_enabled() {
+        return None;
+    }
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("security")
+            .args([
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-w",
+            ])
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8(output.stdout).ok()?;
+    parse_claude_cli_access_token(raw.trim())
+}
+
+async fn read_claude_cli_file_access_token() -> Option<String> {
+    let path = expand_home_path("~/.claude/.credentials.json")?;
+    let raw = tokio::fs::read_to_string(path).await.ok()?;
+    parse_claude_cli_access_token(&raw)
+}
+
+async fn read_claude_cli_access_token() -> Option<String> {
+    if let Some(token) = read_claude_cli_keychain_access_token().await {
+        Some(token)
+    } else {
+        read_claude_cli_file_access_token().await
+    }
+}
+
+fn anthropic_beta_header(oauth: bool, inbound_headers: &warp::http::HeaderMap) -> Option<String> {
+    let required = if oauth {
+        CLAUDE_OAUTH_BETAS
+    } else {
+        ANTHROPIC_API_BETAS
+    };
+    let mut features: Vec<String> = required.iter().map(|feature| feature.to_string()).collect();
+    for value in inbound_headers.get_all("anthropic-beta") {
+        let Ok(raw) = value.to_str() else {
+            continue;
+        };
+        for feature in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if !features.iter().any(|existing| existing == feature) {
+                features.push(feature.to_string());
+            }
+        }
+    }
+    if features.is_empty() {
+        None
+    } else {
+        Some(features.join(","))
+    }
+}
+
+fn claude_code_oauth_billing_header_text() -> String {
+    format!("x-anthropic-billing-header: cc_version={CLAUDE_CODE_VERSION}.unknown; cc_entrypoint=unknown; cch=00000;")
+}
+
+fn claude_code_system_text() -> &'static str {
+    "You are Claude Code, Anthropic's official CLI for Claude."
+}
+
+fn text_system_block(text: impl Into<String>) -> Value {
+    json!({
+        "type": "text",
+        "text": text.into(),
+    })
+}
+
+fn apply_claude_code_oauth_system_prompt(body: &[u8]) -> Result<bytes::Bytes, ProxyError> {
+    let mut payload = serde_json::from_slice::<Value>(body).map_err(ProxyError::invalid_json)?;
+    let Some(obj) = payload.as_object_mut() else {
+        return Err(ProxyError::Validation {
+            message: "Anthropic request body must be a JSON object".to_string(),
+            field: None,
+        });
+    };
+
+    let existing_system = obj.remove("system");
+    let mut system_blocks = vec![
+        text_system_block(claude_code_oauth_billing_header_text()),
+        text_system_block(claude_code_system_text()),
+    ];
+
+    match existing_system {
+        None | Some(Value::Null) => {}
+        Some(Value::String(text)) => system_blocks.push(text_system_block(text)),
+        Some(Value::Array(blocks)) => system_blocks.extend(blocks),
+        Some(other) => system_blocks.push(other),
+    }
+    obj.insert("system".to_string(), Value::Array(system_blocks));
+
+    serde_json::to_vec(&payload)
+        .map(bytes::Bytes::from)
+        .map_err(|e| ProxyError::UpstreamProtocol {
+            message: format!("failed to serialize Anthropic OAuth request payload: {}", e),
+        })
 }
 
 #[allow(dead_code)]
@@ -1775,7 +2028,7 @@ async fn universal_request_handler(
         ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response(),
         ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[
             {"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"},
-            {"id":"claude-sonnet-4-5","object":"model","created":1687882411,"owned_by":"anthropic-upstream"}
+            {"id":"claude-sonnet-4-6","object":"model","created":1687882411,"owned_by":"anthropic-upstream"}
         ]})).into_response(),
         ("POST", "/v1/responses") => {
             let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };

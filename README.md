@@ -134,7 +134,7 @@ curl -X POST http://127.0.0.1:8080/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-sonnet-4-5",
+    "model": "claude-sonnet-4-6",
     "max_tokens": 128,
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -154,14 +154,22 @@ Recommended global shell configuration:
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
 export ANTHROPIC_API_KEY="local-proxy"
-export ANTHROPIC_UPSTREAM_API_KEY="<real-anthropic-api-key>"
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
 Why this works:
 - Claude Code talks to the Anthropic-compatible `/v1/messages` surface
-- requests whose model starts with `claude-` are forwarded to the Anthropic upstream
+- requests whose model starts with `claude-` are forwarded to the Anthropic upstream with Claude subscription OAuth when available locally
 - requests whose model is OpenAI/Codex-style, such as `gpt-5.4` or `openai/gpt-5.4`, are translated into the Codex/ChatGPT upstream path
+
+Claude upstream auth resolution order:
+- `--anthropic-auth-token` / `ANTHROPIC_UPSTREAM_API_KEY`
+- `ANTHROPIC_OAUTH_TOKEN`
+- local Claude Code credentials from macOS Keychain service `Claude Code-credentials`
+- local Claude Code credentials file `~/.claude/.credentials.json`
+- inbound real Anthropic `authorization` / `x-api-key` headers
+
+For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Claude Code HTTP contract: `Authorization: Bearer`, `x-app: cli`, the Claude Code user agent/client-platform headers, `oauth-2025-04-20`, and the Claude Code system attribution prefix required by subscription inference.
 
 Minimal verification:
 
@@ -169,7 +177,7 @@ Minimal verification:
 claude -p --bare --model gpt-5.4 --output-format text \
   "Reply with exactly: CODEX_STREAM_OK"
 
-claude -p --bare --model claude-sonnet-4-5 --output-format text \
+claude -p --bare --model claude-sonnet-4-6 --output-format text \
   "Reply with exactly: CLAUDE_STREAM_OK"
 ```
 
@@ -190,21 +198,20 @@ Notes:
 The repository has unit tests for request conversion and routing decisions, plus a live smoke script for sequential calls through the gateway.
 
 ```bash
-export ANTHROPIC_UPSTREAM_API_KEY="<real-anthropic-api-key>"
 AUTH_PATH="$HOME/.codex/auth.json" scripts/live_mixed_model_smoke.sh
 ```
 
 Default sequence:
 - `gpt-5.4` → Codex/ChatGPT upstream
-- `claude-sonnet-4-5` → Anthropic upstream
+- `claude-sonnet-4-6` → Anthropic upstream
 - `gpt-5.4` → Codex/ChatGPT upstream
 
 The script starts the local gateway, calls `/v1/messages` for each model in order, checks exact response markers, and prints routing evidence from gateway logs.
 
 Notes:
 - `AUTH_PATH` defaults to `$HOME/.codex/auth.json`
-- `MODELS="gpt-5.4 claude-sonnet-4-5 gpt-5.4"` can override the sequence
-- local Claude Code subscription login is not automatically available to the gateway when forwarding to Anthropic upstream; use `ANTHROPIC_UPSTREAM_API_KEY` or `--anthropic-auth-token`
+- `MODELS="gpt-5.4 claude-sonnet-4-6 gpt-5.4"` can override the sequence
+- Claude calls use `ANTHROPIC_OAUTH_TOKEN`, local Claude Code credentials, or `ANTHROPIC_UPSTREAM_API_KEY` / `--anthropic-auth-token`
 
 ## How It Works
 
@@ -235,7 +242,7 @@ Options:
       --upstream-base-url <URL>        Upstream ChatGPT/Codex base URL [default: https://chatgpt.com/backend-api]
       --anthropic-upstream-base-url <URL>
                                         Anthropic Messages API base URL [default: https://api.anthropic.com]
-      --anthropic-auth-token <TOKEN>   Anthropic upstream API token; alternatively set ANTHROPIC_UPSTREAM_API_KEY
+      --anthropic-auth-token <TOKEN>   Anthropic upstream API or OAuth token; alternatively set ANTHROPIC_UPSTREAM_API_KEY
   -h, --help                           Print help
   -v, --version                        Print version
 ```
