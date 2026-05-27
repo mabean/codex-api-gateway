@@ -3,7 +3,8 @@ use std::{fs, sync::Mutex};
 use tempfile::NamedTempFile;
 
 use crate::{
-    anthropic_beta_header, apply_claude_code_oauth_system_prompt, apply_gateway_model_directive,
+    anthropic_beta_header, anthropic_upstream_first_chunk_timeout,
+    apply_claude_code_oauth_system_prompt, apply_gateway_model_directive,
     codex_agent_upstream_max_attempts, codex_agent_upstream_timeout,
     codex_retry_config_for_anthropic_codex, codex_upstream_max_attempts, codex_upstream_timeout,
     extract_response_content, flatten_message_content, gateway_models_response,
@@ -23,6 +24,7 @@ const ALIAS_ENV_KEYS: &[&str] = &[
     "CODEX_GATEWAY_CODEX_MAX_ATTEMPTS",
     "CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS",
     "CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS",
+    "CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS",
 ];
 
 fn clear_alias_env() {
@@ -164,8 +166,8 @@ fn codex_upstream_retry_settings_are_configurable_and_clamped() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
 
-    assert_eq!(codex_upstream_timeout().as_secs(), 60);
-    assert_eq!(codex_upstream_max_attempts(), 2);
+    assert_eq!(codex_upstream_timeout().as_secs(), 30);
+    assert_eq!(codex_upstream_max_attempts(), 1);
 
     std::env::set_var("CODEX_GATEWAY_CODEX_TIMEOUT_SECS", "1");
     std::env::set_var("CODEX_GATEWAY_CODEX_MAX_ATTEMPTS", "99");
@@ -187,7 +189,7 @@ fn codex_agent_upstream_retry_settings_are_short_by_default() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
 
-    assert_eq!(codex_agent_upstream_timeout().as_secs(), 30);
+    assert_eq!(codex_agent_upstream_timeout().as_secs(), 12);
     assert_eq!(codex_agent_upstream_max_attempts(), 1);
 
     std::env::set_var("CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS", "2");
@@ -200,19 +202,35 @@ fn codex_agent_upstream_retry_settings_are_short_by_default() {
 }
 
 #[test]
+fn anthropic_upstream_first_chunk_timeout_is_short_by_default() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    assert_eq!(anthropic_upstream_first_chunk_timeout().as_secs(), 12);
+
+    std::env::set_var("CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS", "1");
+    assert_eq!(anthropic_upstream_first_chunk_timeout().as_secs(), 3);
+
+    std::env::set_var("CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS", "200");
+    assert_eq!(anthropic_upstream_first_chunk_timeout().as_secs(), 120);
+
+    clear_alias_env();
+}
+
+#[test]
 fn codex_agent_directive_uses_agent_retry_policy() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
 
     let retry_config =
         codex_retry_config_for_anthropic_codex("claude-haiku-4-5-20251001", Some("gpt-5.5"));
-    assert_eq!(retry_config.timeout.as_secs(), 30);
+    assert_eq!(retry_config.timeout.as_secs(), 12);
     assert_eq!(retry_config.max_attempts, 1);
     assert_eq!(retry_config.policy_name, "claude-code-agent");
 
     let direct_config = codex_retry_config_for_anthropic_codex("gpt-5.5", None);
-    assert_eq!(direct_config.timeout.as_secs(), 60);
-    assert_eq!(direct_config.max_attempts, 2);
+    assert_eq!(direct_config.timeout.as_secs(), 30);
+    assert_eq!(direct_config.max_attempts, 1);
     assert_eq!(direct_config.policy_name, "default");
 }
 

@@ -314,8 +314,8 @@ Codex/ChatGPT upstream calls are retried when the request times out, the respons
 Defaults:
 
 ```bash
-CODEX_GATEWAY_CODEX_TIMEOUT_SECS=60
-CODEX_GATEWAY_CODEX_MAX_ATTEMPTS=2
+CODEX_GATEWAY_CODEX_TIMEOUT_SECS=30
+CODEX_GATEWAY_CODEX_MAX_ATTEMPTS=1
 ```
 
 The gateway clamps timeout to `5..300` seconds and attempts to `1..5`.
@@ -323,11 +323,19 @@ The gateway clamps timeout to `5..300` seconds and attempts to `1..5`.
 Claude Code `Agent` requests that use `[gateway-model: ...]` get a shorter policy by default because Claude Code already retries the outer request:
 
 ```bash
-CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS=30
+CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS=12
 CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS=1
 ```
 
 These values use the same clamps as the default Codex upstream policy.
+
+Anthropic subscription passthrough streams upstream response chunks directly to the client. The gateway waits briefly for the first upstream chunk, then lets the stream continue normally:
+
+```bash
+CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS=12
+```
+
+The Anthropic first-chunk timeout is clamped to `3..120` seconds.
 
 ## API Endpoints
 

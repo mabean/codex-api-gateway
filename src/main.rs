@@ -2,10 +2,11 @@ use anyhow::{Context, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use clap::Parser;
+use futures_util::{stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use streaming::{
     parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse, CanonicalStreamEvent,
 };
@@ -18,14 +19,17 @@ const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-7";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
 const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.5]`, `[gateway-model: gpt-5.4]`, `[gateway-model: gpt-5.4-mini]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
-const CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 60;
+const CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 30;
 const CODEX_UPSTREAM_TIMEOUT_SECS_MIN: u64 = 5;
 const CODEX_UPSTREAM_TIMEOUT_SECS_MAX: u64 = 300;
-const CODEX_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 2;
+const CODEX_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 1;
 const CODEX_UPSTREAM_MAX_ATTEMPTS_MIN: usize = 1;
 const CODEX_UPSTREAM_MAX_ATTEMPTS_MAX: usize = 5;
-const CODEX_AGENT_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 30;
+const CODEX_AGENT_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 12;
 const CODEX_AGENT_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 1;
+const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_DEFAULT: u64 = 12;
+const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MIN: u64 = 3;
+const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX: u64 = 120;
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "gpt-5.5",
@@ -266,6 +270,15 @@ fn codex_retry_config_for_anthropic_codex(
     } else {
         codex_upstream_retry_config()
     }
+}
+
+fn anthropic_upstream_first_chunk_timeout() -> Duration {
+    Duration::from_secs(env_u64_clamped(
+        "CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS",
+        ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_DEFAULT,
+        ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MIN,
+        ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX,
+    ))
 }
 use uuid::Uuid;
 use warp::{http::StatusCode, Filter, Reply};
@@ -1115,6 +1128,7 @@ impl ProxyServer {
         timeout: Duration,
         attempt: usize,
     ) -> Result<String, ProxyError> {
+        let started = Instant::now();
         let mut request_builder = self
             .client
             .post(format!(
@@ -1155,6 +1169,7 @@ impl ProxyServer {
                 message: format!("failed to send request to upstream: {}", e),
             }
         })?;
+        let header_elapsed_ms = started.elapsed().as_millis();
         let status = response.status();
         let headers = format!("{:?}", response.headers());
         let body = response.text().await.map_err(|e| {
@@ -1171,9 +1186,10 @@ impl ProxyServer {
                 message: format!("failed to read upstream response body: {}", e),
             }
         })?;
+        let total_elapsed_ms = started.elapsed().as_millis();
         eprintln!(
-            "[upstream-response-status] {} attempt={} model={}",
-            status, attempt, model
+            "[upstream-response-status] {} attempt={} model={} header_elapsed_ms={} total_elapsed_ms={}",
+            status, attempt, model, header_elapsed_ms, total_elapsed_ms
         );
         if verbose_tracing_enabled() {
             let body_prefix: String = body.chars().take(1200).collect();
@@ -1415,25 +1431,79 @@ impl ProxyServer {
         request_builder: reqwest::RequestBuilder,
         body: bytes::Bytes,
     ) -> Result<UpstreamHttpResponse, ProxyError> {
-        let response = request_builder.body(body).send().await.map_err(|e| {
-            ProxyError::UpstreamUnavailable {
+        let timeout = anthropic_upstream_first_chunk_timeout();
+        let started = Instant::now();
+        let response = tokio::time::timeout(timeout, request_builder.body(body).send())
+            .await
+            .map_err(|_| {
+                eprintln!(
+                    "[anthropic-upstream-timeout] stage=headers timeout_secs={}",
+                    timeout.as_secs()
+                );
+                ProxyError::UpstreamUnavailable {
+                    message: format!(
+                        "timed out waiting for Anthropic upstream response headers after {}s",
+                        timeout.as_secs()
+                    ),
+                }
+            })?
+            .map_err(|e| ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to Anthropic upstream: {}", e),
-            }
-        })?;
+            })?;
+        let header_elapsed_ms = started.elapsed().as_millis();
         let status = response.status();
-        eprintln!("[anthropic-upstream-response-status] {}", status);
         let content_type = response
             .headers()
             .get("content-type")
             .and_then(|value| value.to_str().ok())
             .unwrap_or("application/json")
             .to_string();
-        let body = response
-            .text()
+        eprintln!(
+            "[anthropic-upstream-response-status] {} header_elapsed_ms={}",
+            status, header_elapsed_ms
+        );
+        let mut body_stream = response.bytes_stream();
+        let first_chunk = tokio::time::timeout(timeout, body_stream.next())
             .await
+            .map_err(|_| {
+                eprintln!(
+                    "[anthropic-upstream-timeout] stage=first_chunk timeout_secs={}",
+                    timeout.as_secs()
+                );
+                ProxyError::UpstreamUnavailable {
+                    message: format!(
+                        "timed out waiting for Anthropic upstream first response chunk after {}s",
+                        timeout.as_secs()
+                    ),
+                }
+            })?
+            .transpose()
             .map_err(|e| ProxyError::UpstreamProtocol {
-                message: format!("failed to read Anthropic upstream response body: {}", e),
+                message: format!(
+                    "failed to read Anthropic upstream first response chunk: {}",
+                    e
+                ),
             })?;
+        let first_chunk_elapsed_ms = started.elapsed().as_millis();
+        eprintln!(
+            "[anthropic-upstream-first-chunk] status={} elapsed_ms={}",
+            status, first_chunk_elapsed_ms
+        );
+
+        let body = if let Some(first_chunk) = first_chunk {
+            let first_stream = stream::once(async move { Ok::<_, std::io::Error>(first_chunk) });
+            let rest_stream = body_stream.map(|chunk| {
+                chunk.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Anthropic upstream stream error: {e}"),
+                    )
+                })
+            });
+            warp::hyper::Body::wrap_stream(first_stream.chain(rest_stream))
+        } else {
+            warp::hyper::Body::empty()
+        };
         Ok(UpstreamHttpResponse {
             status,
             content_type,
@@ -1445,7 +1515,7 @@ impl ProxyServer {
 struct UpstreamHttpResponse {
     status: StatusCode,
     content_type: String,
-    body: String,
+    body: warp::hyper::Body,
 }
 
 fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, ProxyError> {
@@ -2621,15 +2691,27 @@ async fn universal_request_handler(
                     .proxy_anthropic_upstream_request(upstream_body, &headers)
                     .await
                 {
-                    Ok(upstream_response) => warp::reply::with_status(
-                        warp::reply::with_header(
-                            upstream_response.body,
-                            "content-type",
-                            upstream_response.content_type,
-                        ),
-                        upstream_response.status,
-                    )
-                    .into_response(),
+                    Ok(upstream_response) => warp::http::Response::builder()
+                        .status(upstream_response.status)
+                        .header("content-type", upstream_response.content_type)
+                        .body(upstream_response.body)
+                        .unwrap_or_else(|err| {
+                            warp::http::Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .header("content-type", "application/json")
+                                .body(warp::hyper::Body::from(
+                                    json!({
+                                        "type": "error",
+                                        "error": {
+                                            "type": "api_error",
+                                            "message": format!("failed to build upstream response: {err}")
+                                        }
+                                    })
+                                    .to_string(),
+                                ))
+                                .expect("static error response is valid")
+                        })
+                        .into_response(),
                     Err(err) => anthropic_error_response(err),
                 }
             } else {
