@@ -13,6 +13,78 @@ use streaming::{
 const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
+const CODEX_MODELS: &[GatewayModel] = &[GatewayModel {
+    id: "gpt-5.4",
+    display_name: "GPT 5.4",
+    owned_by: "openai-codex",
+    created_at: "2026-01-01T00:00:00Z",
+    created: 1767225600,
+}];
+const ANTHROPIC_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "claude-opus-4-7",
+        display_name: "Claude Opus 4.7",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-04-14T00:00:00Z",
+        created: 1776124800,
+    },
+    GatewayModel {
+        id: "claude-sonnet-4-6",
+        display_name: "Claude Sonnet 4.6",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-02-17T00:00:00Z",
+        created: 1771286400,
+    },
+    GatewayModel {
+        id: "claude-opus-4-6",
+        display_name: "Claude Opus 4.6",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-02-04T00:00:00Z",
+        created: 1770163200,
+    },
+    GatewayModel {
+        id: "claude-opus-4-5-20251101",
+        display_name: "Claude Opus 4.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-11-24T00:00:00Z",
+        created: 1763942400,
+    },
+    GatewayModel {
+        id: "claude-haiku-4-5-20251001",
+        display_name: "Claude Haiku 4.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-10-15T00:00:00Z",
+        created: 1760486400,
+    },
+    GatewayModel {
+        id: "claude-sonnet-4-5-20250929",
+        display_name: "Claude Sonnet 4.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-09-29T00:00:00Z",
+        created: 1759104000,
+    },
+    GatewayModel {
+        id: "claude-opus-4-1-20250805",
+        display_name: "Claude Opus 4.1",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-08-05T00:00:00Z",
+        created: 1754352000,
+    },
+    GatewayModel {
+        id: "claude-opus-4-20250514",
+        display_name: "Claude Opus 4",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-05-22T00:00:00Z",
+        created: 1747872000,
+    },
+    GatewayModel {
+        id: "claude-sonnet-4-20250514",
+        display_name: "Claude Sonnet 4",
+        owned_by: "anthropic-upstream",
+        created_at: "2025-05-22T00:00:00Z",
+        created: 1747872000,
+    },
+];
 
 pub(crate) fn verbose_tracing_enabled() -> bool {
     matches!(
@@ -185,6 +257,15 @@ struct AnthropicTextBlock {
 struct AnthropicUsage {
     input_tokens: u32,
     output_tokens: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GatewayModel {
+    id: &'static str,
+    display_name: &'static str,
+    owned_by: &'static str,
+    created_at: &'static str,
+    created: i64,
 }
 
 #[derive(Serialize, Debug)]
@@ -1042,6 +1123,7 @@ impl ProxyServer {
         body: bytes::Bytes,
         inbound_headers: &warp::http::HeaderMap,
     ) -> Result<UpstreamHttpResponse, ProxyError> {
+        let body = normalize_anthropic_request_model(&body)?;
         let mut request_builder = self
             .client
             .post(format!(
@@ -1234,9 +1316,28 @@ fn normalize_codex_model_id(model: &str) -> String {
     short.to_string()
 }
 
+fn normalize_anthropic_model_id(model: &str) -> String {
+    let short = model.rsplit('/').next().unwrap_or(model);
+    match short.to_lowercase().as_str() {
+        "sonnet" => "claude-sonnet-4-6".to_string(),
+        "opus" => "claude-opus-4-7".to_string(),
+        "haiku" => "claude-haiku-4-5-20251001".to_string(),
+        "claude-opus-4-5" => "claude-opus-4-5-20251101".to_string(),
+        "claude-haiku-4-5" => "claude-haiku-4-5-20251001".to_string(),
+        "claude-sonnet-4-5" => "claude-sonnet-4-5-20250929".to_string(),
+        "claude-opus-4-1" => "claude-opus-4-1-20250805".to_string(),
+        "claude-opus-4" => "claude-opus-4-20250514".to_string(),
+        "claude-sonnet-4" => "claude-sonnet-4-20250514".to_string(),
+        _ => short.to_string(),
+    }
+}
+
 fn route_anthropic_model(model: &str) -> AnthropicModelRoute {
     let short = model.rsplit('/').next().unwrap_or(model);
-    if short.to_lowercase().starts_with("claude-") {
+    let normalized = short.to_lowercase();
+    if normalized.starts_with("claude-")
+        || matches!(normalized.as_str(), "sonnet" | "opus" | "haiku")
+    {
         AnthropicModelRoute::Anthropic
     } else {
         AnthropicModelRoute::Codex
@@ -1403,6 +1504,52 @@ fn apply_claude_code_oauth_system_prompt(body: &[u8]) -> Result<bytes::Bytes, Pr
         .map_err(|e| ProxyError::UpstreamProtocol {
             message: format!("failed to serialize Anthropic OAuth request payload: {}", e),
         })
+}
+
+fn normalize_anthropic_request_model(body: &[u8]) -> Result<bytes::Bytes, ProxyError> {
+    let mut payload = serde_json::from_slice::<Value>(body).map_err(ProxyError::invalid_json)?;
+    let Some(obj) = payload.as_object_mut() else {
+        return Err(ProxyError::Validation {
+            message: "Anthropic request body must be a JSON object".to_string(),
+            field: None,
+        });
+    };
+    if let Some(model) = obj.get("model").and_then(Value::as_str) {
+        let normalized = normalize_anthropic_model_id(model);
+        if normalized != model {
+            obj.insert("model".to_string(), Value::String(normalized));
+        }
+    }
+    serde_json::to_vec(&payload)
+        .map(bytes::Bytes::from)
+        .map_err(|e| ProxyError::UpstreamProtocol {
+            message: format!("failed to serialize Anthropic request payload: {}", e),
+        })
+}
+
+fn gateway_model_json(model: &GatewayModel) -> Value {
+    json!({
+        "id": model.id,
+        "object": "model",
+        "type": "model",
+        "display_name": model.display_name,
+        "created": model.created,
+        "created_at": model.created_at,
+        "owned_by": model.owned_by,
+    })
+}
+
+fn gateway_models_response() -> Value {
+    let data = CODEX_MODELS
+        .iter()
+        .chain(ANTHROPIC_MODELS.iter())
+        .map(gateway_model_json)
+        .collect::<Vec<_>>();
+    json!({
+        "object": "list",
+        "type": "list",
+        "data": data,
+    })
 }
 
 #[allow(dead_code)]
@@ -2025,32 +2172,57 @@ async fn universal_request_handler(
     let path_str = path.as_str();
     log_request(&method, path_str, &headers);
     let response = match (method.as_str(), path_str) {
-        ("GET", "/health") => warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response(),
-        ("GET", "/models") | ("GET", "/v1/models") => warp::reply::json(&json!({"object":"list","data":[
-            {"id":"gpt-5.4","object":"model","created":1687882411,"owned_by":"openai-codex"},
-            {"id":"claude-sonnet-4-6","object":"model","created":1687882411,"owned_by":"anthropic-upstream"}
-        ]})).into_response(),
+        ("GET", "/health") => {
+            warp::reply::json(&json!({"status":"ok","service":"codex-api-gateway"})).into_response()
+        }
+        ("GET", "/models") | ("GET", "/v1/models") => {
+            warp::reply::json(&gateway_models_response()).into_response()
+        }
         ("POST", "/v1/responses") => {
-            let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };
+            let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) {
+                Ok(req) => req,
+                Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))),
+            };
             if responses_req.stream.unwrap_or(false) {
-                let (model, payload) = match proxy.convert_openai_responses_request(responses_req) { Ok(v) => v, Err(err) => return Ok(openai_error_response(err)) };
+                let (model, payload) = match proxy.convert_openai_responses_request(responses_req) {
+                    Ok(v) => v,
+                    Err(err) => return Ok(openai_error_response(err)),
+                };
                 match proxy.upstream_sse_text_for_payload(model, payload).await {
-                    Ok((_model, sse_body)) => warp::reply::with_header(sse_body, "content-type", "text/event-stream").into_response(),
+                    Ok((_model, sse_body)) => {
+                        warp::reply::with_header(sse_body, "content-type", "text/event-stream")
+                            .into_response()
+                    }
                     Err(err) => openai_error_response(err),
                 }
             } else {
-                match proxy.proxy_openai_responses_request(responses_req).await { Ok(response) => warp::reply::json(&response).into_response(), Err(err) => openai_error_response(err) }
+                match proxy.proxy_openai_responses_request(responses_req).await {
+                    Ok(response) => warp::reply::json(&response).into_response(),
+                    Err(err) => openai_error_response(err),
+                }
             }
         }
         ("POST", "/v1/chat/completions") => {
-            let chat_req = match serde_json::from_slice::<ChatCompletionsRequest>(&body) { Ok(req) => req, Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))) };
+            let chat_req = match serde_json::from_slice::<ChatCompletionsRequest>(&body) {
+                Ok(req) => req,
+                Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))),
+            };
             if chat_req.stream.unwrap_or(false) {
-                match proxy.proxy_request_stream(chat_req, ApiFamily::OpenAi).await {
-                    Ok((_model, sse_body)) => warp::reply::with_header(sse_body, "content-type", "text/event-stream").into_response(),
+                match proxy
+                    .proxy_request_stream(chat_req, ApiFamily::OpenAi)
+                    .await
+                {
+                    Ok((_model, sse_body)) => {
+                        warp::reply::with_header(sse_body, "content-type", "text/event-stream")
+                            .into_response()
+                    }
                     Err(err) => openai_error_response(err),
                 }
             } else {
-                match proxy.proxy_request(chat_req).await { Ok(response) => warp::reply::json(&response).into_response(), Err(err) => openai_error_response(err) }
+                match proxy.proxy_request(chat_req).await {
+                    Ok(response) => warp::reply::json(&response).into_response(),
+                    Err(err) => openai_error_response(err),
+                }
             }
         }
         ("POST", "/v1/messages") => {
@@ -2072,17 +2244,15 @@ async fn universal_request_handler(
                     .proxy_anthropic_upstream_request(body.clone(), &headers)
                     .await
                 {
-                    Ok(upstream_response) => {
-                        warp::reply::with_status(
-                            warp::reply::with_header(
-                                upstream_response.body,
-                                "content-type",
-                                upstream_response.content_type,
-                            ),
-                            upstream_response.status,
-                        )
-                        .into_response()
-                    }
+                    Ok(upstream_response) => warp::reply::with_status(
+                        warp::reply::with_header(
+                            upstream_response.body,
+                            "content-type",
+                            upstream_response.content_type,
+                        ),
+                        upstream_response.status,
+                    )
+                    .into_response(),
                     Err(err) => anthropic_error_response(err),
                 }
             } else {
@@ -2093,7 +2263,10 @@ async fn universal_request_handler(
                     Err(err) => return Ok(anthropic_error_response(err)),
                 };
                 if stream {
-                    match proxy.proxy_request_stream(chat_req, ApiFamily::Anthropic).await {
+                    match proxy
+                        .proxy_request_stream(chat_req, ApiFamily::Anthropic)
+                        .await
+                    {
                         Ok((_model, sse_body)) => {
                             warp::reply::with_header(sse_body, "content-type", "text/event-stream")
                                 .into_response()
@@ -2115,7 +2288,13 @@ async fn universal_request_handler(
         ("GET", "/v1/responses") => method_not_allowed_response(ApiFamily::OpenAi),
         ("GET", "/v1/chat/completions") => method_not_allowed_response(ApiFamily::OpenAi),
         ("GET", "/v1/messages") => method_not_allowed_response(ApiFamily::Anthropic),
-        _ => if path_str.starts_with("/v1/messages") { not_found_response(ApiFamily::Anthropic) } else { not_found_response(ApiFamily::OpenAi) },
+        _ => {
+            if path_str.starts_with("/v1/messages") {
+                not_found_response(ApiFamily::Anthropic)
+            } else {
+                not_found_response(ApiFamily::OpenAi)
+            }
+        }
     };
     Ok(response)
 }

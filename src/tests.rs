@@ -4,7 +4,8 @@ use tempfile::NamedTempFile;
 
 use crate::{
     anthropic_beta_header, apply_claude_code_oauth_system_prompt, extract_response_content,
-    flatten_message_content, is_anthropic_oauth_token, normalize_codex_model_id,
+    flatten_message_content, gateway_models_response, is_anthropic_oauth_token,
+    normalize_anthropic_model_id, normalize_anthropic_request_model, normalize_codex_model_id,
     normalize_openai_responses_input, parse_claude_cli_access_token, render_openai_responses_json,
     route_anthropic_model, AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute,
     ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
@@ -35,6 +36,68 @@ fn routes_anthropic_ingress_by_model_family() {
         route_anthropic_model("openai/gpt-5.4"),
         AnthropicModelRoute::Codex
     );
+    assert_eq!(
+        route_anthropic_model("sonnet"),
+        AnthropicModelRoute::Anthropic
+    );
+    assert_eq!(
+        route_anthropic_model("opus"),
+        AnthropicModelRoute::Anthropic
+    );
+    assert_eq!(
+        route_anthropic_model("haiku"),
+        AnthropicModelRoute::Anthropic
+    );
+}
+
+#[test]
+fn normalizes_anthropic_model_aliases_to_current_versions() {
+    assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-4-6");
+    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-4-7");
+    assert_eq!(
+        normalize_anthropic_model_id("haiku"),
+        "claude-haiku-4-5-20251001"
+    );
+    assert_eq!(
+        normalize_anthropic_model_id("claude-sonnet-4-5"),
+        "claude-sonnet-4-5-20250929"
+    );
+}
+
+#[test]
+fn rewrites_anthropic_request_model_aliases_before_upstream() {
+    let body = br#"{
+        "model": "sonnet",
+        "max_tokens": 64,
+        "messages": [{"role": "user", "content": "hello"}]
+    }"#;
+
+    let normalized = normalize_anthropic_request_model(body).unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+
+    assert_eq!(payload["model"], serde_json::json!("claude-sonnet-4-6"));
+}
+
+#[test]
+fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
+    let response = gateway_models_response();
+    let ids = response["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|model| model["id"].as_str())
+        .collect::<Vec<_>>();
+
+    assert!(ids.contains(&"gpt-5.4"));
+    assert!(ids.contains(&"claude-opus-4-7"));
+    assert!(ids.contains(&"claude-sonnet-4-6"));
+    assert!(ids.contains(&"claude-opus-4-6"));
+    assert!(ids.contains(&"claude-opus-4-5-20251101"));
+    assert!(ids.contains(&"claude-haiku-4-5-20251001"));
+    assert!(ids.contains(&"claude-sonnet-4-5-20250929"));
+    assert!(ids.contains(&"claude-opus-4-1-20250805"));
+    assert!(ids.contains(&"claude-opus-4-20250514"));
+    assert!(ids.contains(&"claude-sonnet-4-20250514"));
 }
 
 #[test]

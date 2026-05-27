@@ -161,6 +161,7 @@ Why this works:
 - Claude Code talks to the Anthropic-compatible `/v1/messages` surface
 - requests whose model starts with `claude-` are forwarded to the Anthropic upstream with Claude subscription OAuth when available locally
 - requests whose model is OpenAI/Codex-style, such as `gpt-5.4` or `openai/gpt-5.4`, are translated into the Codex/ChatGPT upstream path
+- Claude family aliases `sonnet`, `opus`, and `haiku` are normalized to the current gateway-supported Claude versions before forwarding upstream
 
 Claude upstream auth resolution order:
 - `--anthropic-auth-token` / `ANTHROPIC_UPSTREAM_API_KEY`
@@ -170,6 +171,18 @@ Claude upstream auth resolution order:
 - inbound real Anthropic `authorization` / `x-api-key` headers
 
 For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Claude Code HTTP contract: `Authorization: Bearer`, `x-app: cli`, the Claude Code user agent/client-platform headers, `oauth-2025-04-20`, and the Claude Code system attribution prefix required by subscription inference.
+
+`GET /v1/models` returns `gpt-5.4` plus all currently listed Claude subscription versions:
+
+- `claude-opus-4-7`
+- `claude-sonnet-4-6`
+- `claude-opus-4-6`
+- `claude-opus-4-5-20251101`
+- `claude-haiku-4-5-20251001`
+- `claude-sonnet-4-5-20250929`
+- `claude-opus-4-1-20250805`
+- `claude-opus-4-20250514`
+- `claude-sonnet-4-20250514`
 
 Minimal verification:
 
