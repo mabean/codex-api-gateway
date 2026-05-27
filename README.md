@@ -213,6 +213,12 @@ Notes:
 - `MODELS="gpt-5.4 claude-sonnet-4-6 gpt-5.4"` can override the sequence
 - Claude calls use `ANTHROPIC_OAUTH_TOKEN`, local Claude Code credentials, or `ANTHROPIC_UPSTREAM_API_KEY` / `--anthropic-auth-token`
 
+For a fuller Claude Code compatibility check, including text-only calls, direct `/v1/messages` JSON/SSE calls, file-edit `tool_use`, `tool_result` follow-ups, and `Bash` tool calls:
+
+```bash
+AUTH_PATH="$HOME/.codex/auth.json" scripts/live_claude_code_acceptance.sh
+```
+
 ## How It Works
 
 ### Request Flow
