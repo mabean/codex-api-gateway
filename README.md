@@ -177,6 +177,7 @@ For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Cla
 - `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
+- `claude-opus-4-8`
 - `claude-opus-4-7`
 - `claude-sonnet-4-6`
 - `claude-opus-4-6`
@@ -224,7 +225,7 @@ Gateway alias overrides:
 ```bash
 # Defaults:
 # CODEX_GATEWAY_ALIAS_SONNET=claude-sonnet-4-6
-# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-4-7
+# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-4-8
 # CODEX_GATEWAY_ALIAS_HAIKU=claude-haiku-4-5-20251001
 
 # Optional fallback: make every `haiku` request use Codex when no

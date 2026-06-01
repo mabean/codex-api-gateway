@@ -84,7 +84,7 @@ fn normalizes_anthropic_model_aliases_to_current_versions() {
     clear_alias_env();
 
     assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-4-6");
-    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-4-7");
+    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-4-8");
     assert_eq!(
         normalize_anthropic_model_id("haiku"),
         "claude-haiku-4-5-20251001"
@@ -330,6 +330,7 @@ fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
     assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.4-mini"));
+    assert!(ids.contains(&"claude-opus-4-8"));
     assert!(ids.contains(&"claude-opus-4-7"));
     assert!(ids.contains(&"claude-sonnet-4-6"));
     assert!(ids.contains(&"claude-opus-4-6"));

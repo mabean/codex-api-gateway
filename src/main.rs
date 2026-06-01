@@ -15,7 +15,7 @@ const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
 const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-4-6";
-const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-7";
+const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-8";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
 const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.5]`, `[gateway-model: gpt-5.4]`, `[gateway-model: gpt-5.4-mini]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
@@ -54,6 +54,13 @@ const CODEX_MODELS: &[GatewayModel] = &[
     },
 ];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "claude-opus-4-8",
+        display_name: "Claude Opus 4.8",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-05-28T00:00:00Z",
+        created: 1779926400,
+    },
     GatewayModel {
         id: "claude-opus-4-7",
         display_name: "Claude Opus 4.7",
