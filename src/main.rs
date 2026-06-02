@@ -6,13 +6,15 @@ use futures_util::{stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use streaming::{
     parse_codex_sse_to_events, render_anthropic_sse, render_openai_sse, CanonicalStreamEvent,
 };
 
 const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
+const CLAUDE_CODE_CREDENTIALS_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
 const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-4-6";
 const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-8";
@@ -722,6 +724,7 @@ struct ProxyServer {
     upstream_base_url: String,
     anthropic_upstream_base_url: String,
     anthropic_auth_token: Option<String>,
+    claude_oauth_refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl ProxyServer {
@@ -755,6 +758,7 @@ impl ProxyServer {
             anthropic_auth_token: anthropic_auth_token
                 .or_else(|| std::env::var("ANTHROPIC_UPSTREAM_API_KEY").ok())
                 .and_then(normalize_optional_secret),
+            claude_oauth_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
@@ -819,7 +823,8 @@ impl ProxyServer {
         {
             return Some(AnthropicUpstreamAuth::OAuthToken(token));
         }
-        if let Some(token) = read_claude_cli_access_token().await {
+        let _refresh_guard = self.claude_oauth_refresh_lock.lock().await;
+        if let Some(token) = read_or_refresh_claude_cli_access_token().await {
             return Some(AnthropicUpstreamAuth::OAuthToken(token));
         }
         if let Some(authorization) = inbound_headers.get("authorization") {
@@ -1804,10 +1809,24 @@ fn parse_claude_cli_access_token(raw: &str) -> Option<String> {
     if access_token.is_empty() {
         return None;
     }
-    if !matches!(oauth.expires_at, Some(expires_at) if expires_at.is_finite() && expires_at > 0.0) {
+    let expires_at = oauth.expires_at?;
+    if !expires_at.is_finite() || expires_at <= claude_oauth_expiry_floor_ms() {
         return None;
     }
     Some(access_token)
+}
+
+fn claude_oauth_expiry_floor_ms() -> f64 {
+    const EXPIRY_SKEW_MS: f64 = 60_000.0;
+    claude_oauth_now_ms() + EXPIRY_SKEW_MS
+}
+
+fn claude_oauth_now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as f64)
+        .unwrap_or(f64::MAX)
 }
 
 fn expand_home_path(path: &str) -> Option<String> {
@@ -1826,7 +1845,44 @@ fn claude_keychain_enabled() -> bool {
     )
 }
 
-async fn read_claude_cli_keychain_access_token() -> Option<String> {
+async fn read_or_refresh_claude_cli_access_token() -> Option<String> {
+    let keychain_raw = read_claude_cli_keychain_credentials_raw().await;
+    if let Some(raw) = keychain_raw.as_deref() {
+        if let Some(token) = parse_claude_cli_access_token(raw) {
+            return Some(token);
+        }
+    }
+
+    let file_path = expand_home_path("~/.claude/.credentials.json");
+    let file_raw = if let Some(path) = file_path.as_deref() {
+        tokio::fs::read_to_string(path).await.ok()
+    } else {
+        None
+    };
+    if let Some(raw) = file_raw.as_deref() {
+        if let Some(token) = parse_claude_cli_access_token(raw) {
+            return Some(token);
+        }
+    }
+
+    if keychain_raw.is_some() || file_raw.is_some() {
+        refresh_claude_cli_credentials_via_cli().await;
+    }
+
+    if let Some(raw) = read_claude_cli_keychain_credentials_raw().await.as_deref() {
+        if let Some(token) = parse_claude_cli_access_token(raw) {
+            return Some(token);
+        }
+    }
+    if let Some(path) = file_path.as_deref() {
+        if let Ok(raw) = tokio::fs::read_to_string(path).await {
+            return parse_claude_cli_access_token(&raw);
+        }
+    }
+    None
+}
+
+async fn read_claude_cli_keychain_credentials_raw() -> Option<String> {
     if !cfg!(target_os = "macos") || !claude_keychain_enabled() {
         return None;
     }
@@ -1836,7 +1892,7 @@ async fn read_claude_cli_keychain_access_token() -> Option<String> {
             .args([
                 "find-generic-password",
                 "-s",
-                "Claude Code-credentials",
+                CLAUDE_CODE_CREDENTIALS_KEYCHAIN_SERVICE,
                 "-w",
             ])
             .output(),
@@ -1847,22 +1903,39 @@ async fn read_claude_cli_keychain_access_token() -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let raw = String::from_utf8(output.stdout).ok()?;
-    parse_claude_cli_access_token(raw.trim())
+    String::from_utf8(output.stdout).ok()
 }
 
-async fn read_claude_cli_file_access_token() -> Option<String> {
-    let path = expand_home_path("~/.claude/.credentials.json")?;
-    let raw = tokio::fs::read_to_string(path).await.ok()?;
-    parse_claude_cli_access_token(&raw)
-}
-
-async fn read_claude_cli_access_token() -> Option<String> {
-    if let Some(token) = read_claude_cli_keychain_access_token().await {
-        Some(token)
-    } else {
-        read_claude_cli_file_access_token().await
+async fn refresh_claude_cli_credentials_via_cli() -> bool {
+    let claude_exe = std::env::var("CODEX_GATEWAY_CLAUDE_EXE")
+        .ok()
+        .and_then(normalize_optional_secret)
+        .unwrap_or_else(|| "claude".to_string());
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::process::Command::new(claude_exe)
+            .args(["auth", "status", "--json"])
+            .output(),
+    )
+    .await;
+    let Ok(Ok(output)) = output else {
+        eprintln!("[claude-oauth-refresh] claude auth status timed out or failed to start");
+        return false;
+    };
+    if !output.status.success() {
+        eprintln!(
+            "[claude-oauth-refresh] claude auth status failed status={}",
+            output.status
+        );
+        return false;
     }
+    let Ok(status) = serde_json::from_slice::<Value>(&output.stdout) else {
+        return false;
+    };
+    status
+        .get("loggedIn")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn anthropic_beta_header(oauth: bool, inbound_headers: &warp::http::HeaderMap) -> Option<String> {
@@ -2778,6 +2851,7 @@ impl Clone for ProxyServer {
             upstream_base_url: self.upstream_base_url.clone(),
             anthropic_upstream_base_url: self.anthropic_upstream_base_url.clone(),
             anthropic_auth_token: self.anthropic_auth_token.clone(),
+            claude_oauth_refresh_lock: self.claude_oauth_refresh_lock.clone(),
         }
     }
 }

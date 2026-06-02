@@ -365,6 +365,10 @@ fn parses_claude_cli_credentials_contract() {
         r#"{"claudeAiOauth":{"accessToken":"","expiresAt":1893456000000}}"#
     )
     .is_none());
+    assert!(parse_claude_cli_access_token(
+        r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-expired-token","expiresAt":1}}"#
+    )
+    .is_none());
 }
 
 #[test]
@@ -542,6 +546,7 @@ fn converts_anthropic_messages_to_internal_chat_shape() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = AnthropicMessagesRequest {
@@ -575,6 +580,7 @@ fn converts_anthropic_messages_without_system_prompt() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = AnthropicMessagesRequest {
@@ -613,6 +619,7 @@ fn anthropic_requires_max_tokens() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = AnthropicMessagesRequest {
@@ -648,6 +655,7 @@ fn anthropic_rejects_invalid_role() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = AnthropicMessagesRequest {
@@ -683,6 +691,7 @@ fn chat_request_requires_messages() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = ChatCompletionsRequest {
@@ -765,6 +774,7 @@ fn convert_chat_to_responses_supports_array_message_content() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = ChatCompletionsRequest {
@@ -797,6 +807,7 @@ fn convert_chat_to_responses_preserves_assistant_history() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
     let req = ChatCompletionsRequest {
         model: "gpt-test".to_string(),
@@ -874,6 +885,7 @@ fn anthropic_tool_result_blocks_become_function_call_output_items() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
     let req = ChatCompletionsRequest {
         model: "openai/gpt-5.4".to_string(),
@@ -1044,6 +1056,7 @@ fn anthropic_assistant_tool_use_blocks_become_codex_function_call_items() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
     let req = ChatCompletionsRequest {
         model: "openai/gpt-5.4".to_string(),
@@ -1154,6 +1167,7 @@ fn convert_openai_responses_request_normalizes_model_and_tools() {
         upstream_base_url: "https://example.test".to_string(),
         anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
         anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let req = OpenAiResponsesRequest {
