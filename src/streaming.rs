@@ -427,7 +427,7 @@ pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> Str
             _ => {}
         }
     }
-    eprintln!(
+    log::warn!(
         "[anthropic-render-summary] {}",
         serde_json::json!({
             "model": model,
@@ -642,7 +642,7 @@ pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> Str
         }
     }
     if crate::verbose_tracing_enabled() {
-        eprintln!(
+        log::warn!(
             "[anthropic-wire-summary] {}",
             serde_json::json!({
                 "text_blocks": if text_deltas > 0 { 1 } else { 0 },
@@ -653,9 +653,9 @@ pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> Str
             })
         );
         if tool_call_starts > 0 {
-            eprintln!("[tool-path-stage] anthropic_tool_use_rendered");
+            log::warn!("[tool-path-stage] anthropic_tool_use_rendered");
         } else {
-            eprintln!("[tool-path-stage] anthropic_end_turn_rendered");
+            log::warn!("[tool-path-stage] anthropic_end_turn_rendered");
         }
     }
     out

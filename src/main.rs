@@ -6,6 +6,9 @@ use futures_util::{stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use streaming::{
@@ -32,6 +35,8 @@ const CODEX_AGENT_UPSTREAM_MAX_ATTEMPTS_DEFAULT: usize = 1;
 const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_DEFAULT: u64 = 12;
 const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MIN: u64 = 3;
 const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX: u64 = 120;
+const DEFAULT_LOG_MAX_SIZE_MIB: u64 = 10;
+const DEFAULT_LOG_RETAINED_FILES: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
         id: "gpt-5.5",
@@ -331,6 +336,187 @@ struct Args {
         help = "Anthropic upstream API token; alternatively set ANTHROPIC_UPSTREAM_API_KEY"
     )]
     anthropic_auth_token: Option<String>,
+    #[arg(
+        long,
+        help = "Log file path; defaults to the platform application log directory"
+    )]
+    log_path: Option<String>,
+    #[arg(
+        long,
+        default_value_t = DEFAULT_LOG_MAX_SIZE_MIB,
+        help = "Rotate the active log after it reaches this size in MiB"
+    )]
+    log_max_size_mib: u64,
+    #[arg(
+        long,
+        default_value_t = DEFAULT_LOG_RETAINED_FILES,
+        help = "Number of rotated log files to retain"
+    )]
+    log_retained_files: usize,
+}
+
+struct RotatingFile {
+    path: PathBuf,
+    file: File,
+    bytes_written: u64,
+    max_size_bytes: u64,
+    retained_files: usize,
+}
+
+impl RotatingFile {
+    fn open(path: PathBuf, max_size_bytes: u64, retained_files: usize) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create log directory: {}", parent.display()))?;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .with_context(|| format!("Failed to open log file: {}", path.display()))?;
+        let bytes_written = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        Ok(Self {
+            path,
+            file,
+            bytes_written,
+            max_size_bytes: max_size_bytes.max(1),
+            retained_files,
+        })
+    }
+
+    fn write_line(&mut self, line: &[u8]) -> std::io::Result<()> {
+        if self.bytes_written > 0
+            && self.bytes_written.saturating_add(line.len() as u64) > self.max_size_bytes
+        {
+            self.rotate()?;
+        }
+        self.file.write_all(line)?;
+        self.file.flush()?;
+        self.bytes_written = self.bytes_written.saturating_add(line.len() as u64);
+        Ok(())
+    }
+
+    fn rotate(&mut self) -> std::io::Result<()> {
+        self.file.flush()?;
+        if self.retained_files == 0 {
+            self.file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&self.path)?;
+            self.bytes_written = 0;
+            return Ok(());
+        }
+
+        let oldest = rotated_log_path(&self.path, self.retained_files);
+        remove_file_if_present(&oldest)?;
+        for index in (1..self.retained_files).rev() {
+            let source = rotated_log_path(&self.path, index);
+            let destination = rotated_log_path(&self.path, index + 1);
+            rename_if_present(&source, &destination)?;
+        }
+        rename_if_present(&self.path, &rotated_log_path(&self.path, 1))?;
+        self.file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.path)?;
+        self.bytes_written = 0;
+        Ok(())
+    }
+}
+
+struct RotatingLogger {
+    writer: std::sync::Mutex<RotatingFile>,
+}
+
+impl log::Log for RotatingLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let line = format!(
+            "{} {:<5} {}\n",
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            record.level(),
+            record.args()
+        );
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.write_line(line.as_bytes());
+        }
+    }
+
+    fn flush(&self) {
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.file.flush();
+        }
+    }
+}
+
+fn rotated_log_path(path: &Path, index: usize) -> PathBuf {
+    PathBuf::from(format!("{}.{}", path.display(), index))
+}
+
+fn remove_file_if_present(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+fn rename_if_present(source: &Path, destination: &Path) -> std::io::Result<()> {
+    match std::fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+fn default_log_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Logs")
+                .join("codex-api-gateway")
+                .join("gateway.log");
+        }
+    }
+    if let Some(state_home) = std::env::var_os("XDG_STATE_HOME") {
+        return PathBuf::from(state_home)
+            .join("codex-api-gateway")
+            .join("gateway.log");
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("state")
+            .join("codex-api-gateway")
+            .join("gateway.log");
+    }
+    PathBuf::from("/tmp/codex-api-gateway.log")
+}
+
+fn resolve_log_path(configured: Option<&str>) -> PathBuf {
+    configured
+        .and_then(expand_home_path)
+        .map(PathBuf::from)
+        .unwrap_or_else(default_log_path)
+}
+
+fn init_rotating_logger(path: PathBuf, max_size_mib: u64, retained_files: usize) -> Result<()> {
+    let max_size_bytes = max_size_mib.max(1).saturating_mul(1024 * 1024);
+    let logger = RotatingLogger {
+        writer: std::sync::Mutex::new(RotatingFile::open(path, max_size_bytes, retained_files)?),
+    };
+    log::set_boxed_logger(Box::new(logger)).context("Failed to initialize rotating logger")?;
+    log::set_max_level(log::LevelFilter::Info);
+    Ok(())
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -873,7 +1059,7 @@ impl ProxyServer {
         }
         if verbose_tracing_enabled() {
             if let Some(tools) = &anthropic_req.tools {
-                eprintln!(
+                log::warn!(
                     "[anthropic-ingress] incoming tools count={} names={:?}",
                     tools.len(),
                     tools
@@ -892,7 +1078,7 @@ impl ProxyServer {
                         .collect::<Vec<String>>()
                 );
             } else {
-                eprintln!("[anthropic-ingress] incoming tools count=0 names=[]");
+                log::warn!("[anthropic-ingress] incoming tools count=0 names=[]");
             }
         }
         Ok(ChatCompletionsRequest {
@@ -969,12 +1155,12 @@ impl ProxyServer {
         };
         let instructions = normalize_codex_instructions(&raw_instructions);
         if verbose_tracing_enabled() {
-            eprintln!("[codex-instructions-raw-bytes] {}", raw_instructions.len());
-            eprintln!(
+            log::warn!("[codex-instructions-raw-bytes] {}", raw_instructions.len());
+            log::warn!(
                 "[codex-instructions-normalized-bytes] {}",
                 instructions.len()
             );
-            eprintln!(
+            log::warn!(
                 "[codex-instructions-normalized-prefix] {}",
                 instructions.chars().take(1200).collect::<String>()
             );
@@ -1001,7 +1187,7 @@ impl ProxyServer {
                     })
                 })
                 .collect();
-            eprintln!(
+            log::warn!(
                 "[responses-request] model={} tools_count={} tool_names={:?} input_items={} instructions_len={}",
                 normalize_codex_model_id(&chat_req.model),
                 normalized_tools.len(),
@@ -1012,7 +1198,7 @@ impl ProxyServer {
                 input.len(),
                 instructions.len()
             );
-            eprintln!(
+            log::warn!(
                 "[responses-request-tools] {}",
                 serde_json::to_string(&tool_debug_summary).unwrap_or_else(|_| "[]".to_string())
             );
@@ -1098,16 +1284,16 @@ impl ProxyServer {
                 .unwrap_or_else(|_| "<serialize-failed>".to_string());
             let upstream_request_prefix: String =
                 upstream_request_json.chars().take(1500).collect();
-            eprintln!(
+            log::warn!(
                 "[upstream-request-body-bytes] {}",
                 upstream_request_json.len()
             );
-            eprintln!("[upstream-request-body-prefix] {}", upstream_request_prefix);
+            log::warn!("[upstream-request-body-prefix] {}", upstream_request_prefix);
         }
 
         let mut last_error: Option<ProxyError> = None;
         for attempt in 1..=max_attempts {
-            eprintln!(
+            log::warn!(
                 "[codex-upstream-attempt] model={} attempt={} max_attempts={} timeout_secs={} policy={}",
                 model,
                 attempt,
@@ -1121,7 +1307,7 @@ impl ProxyServer {
             {
                 Ok(body) => return Ok((model, body)),
                 Err(err) if attempt < max_attempts && err.is_retryable_codex_upstream_error() => {
-                    eprintln!(
+                    log::warn!(
                         "[codex-upstream-retry] model={} attempt={} reason={}",
                         model,
                         attempt,
@@ -1177,12 +1363,14 @@ impl ProxyServer {
         let session_id = Uuid::new_v4();
         request_builder = request_builder.header("session_id", session_id.to_string());
         let response = request_builder.json(&payload).send().await.map_err(|e| {
-            eprintln!(
+            log::warn!(
                 "[codex-upstream-send-error] model={} attempt={} error={}",
-                model, attempt, e
+                model,
+                attempt,
+                e
             );
             if e.is_timeout() {
-                eprintln!("[codex-upstream-timeout] stage=send attempt={}", attempt);
+                log::warn!("[codex-upstream-timeout] stage=send attempt={}", attempt);
             }
             ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to upstream: {}", e),
@@ -1192,37 +1380,37 @@ impl ProxyServer {
         let status = response.status();
         let headers = format!("{:?}", response.headers());
         let body = response.text().await.map_err(|e| {
-            eprintln!("[upstream-read-error] {}", e);
+            log::warn!("[upstream-read-error] {}", e);
             if e.is_timeout() {
-                eprintln!("[codex-upstream-timeout] stage=read attempt={}", attempt);
-                eprintln!("[request-outcome] upstream_read_failed");
+                log::warn!("[codex-upstream-timeout] stage=read attempt={}", attempt);
+                log::warn!("[request-outcome] upstream_read_failed");
                 return ProxyError::UpstreamUnavailable {
                     message: format!("timed out reading upstream response body: {}", e),
                 };
             }
-            eprintln!("[request-outcome] upstream_read_failed");
+            log::warn!("[request-outcome] upstream_read_failed");
             ProxyError::UpstreamProtocol {
                 message: format!("failed to read upstream response body: {}", e),
             }
         })?;
         let total_elapsed_ms = started.elapsed().as_millis();
-        eprintln!(
+        log::warn!(
             "[upstream-response-status] {} attempt={} model={} header_elapsed_ms={} total_elapsed_ms={}",
             status, attempt, model, header_elapsed_ms, total_elapsed_ms
         );
         if verbose_tracing_enabled() {
             let body_prefix: String = body.chars().take(1200).collect();
-            eprintln!("[upstream-response-headers] {}", headers);
-            eprintln!("[upstream-response-body-bytes] {}", body.len());
+            log::warn!("[upstream-response-headers] {}", headers);
+            log::warn!("[upstream-response-body-bytes] {}", body.len());
             if !body_prefix.trim().is_empty() {
-                eprintln!("[upstream-response-body-prefix] {}", body_prefix);
+                log::warn!("[upstream-response-body-prefix] {}", body_prefix);
             }
             if !body.trim().is_empty() {
-                eprintln!("[upstream-response-body] {}", body);
+                log::warn!("[upstream-response-body] {}", body);
             }
         }
         if !status.is_success() {
-            eprintln!("[request-outcome] upstream_non_success");
+            log::warn!("[request-outcome] upstream_non_success");
             let message = if body.trim().is_empty() || !verbose_tracing_enabled() {
                 format!("upstream returned {}", status)
             } else {
@@ -1230,7 +1418,7 @@ impl ProxyServer {
             };
             return Err(classify_upstream_error(status, message));
         }
-        eprintln!("[request-outcome] upstream_success");
+        log::warn!("[request-outcome] upstream_success");
         Ok(body)
     }
 
@@ -1268,7 +1456,7 @@ impl ProxyServer {
             .upstream_sse_text_with_retry(chat_req, retry_config)
             .await?;
         if verbose_tracing_enabled() {
-            eprintln!(
+            log::warn!(
                 "[raw-codex-sse-begin]
 {}
 [raw-codex-sse-end]",
@@ -1276,8 +1464,8 @@ impl ProxyServer {
             );
         }
         let events = parse_codex_sse_to_events(&sse_text).inspect_err(|e| {
-            eprintln!("[codex-parse-error] {}", e.message());
-            eprintln!("[request-outcome] codex_parse_failed");
+            log::warn!("[codex-parse-error] {}", e.message());
+            log::warn!("[request-outcome] codex_parse_failed");
         })?;
         let mut text_deltas = 0usize;
         let mut tool_call_starts = 0usize;
@@ -1296,7 +1484,7 @@ impl ProxyServer {
                 _ => {}
             }
         }
-        eprintln!(
+        log::warn!(
             "[codex-events-summary] {}",
             serde_json::json!({
                 "text_deltas": text_deltas,
@@ -1307,17 +1495,17 @@ impl ProxyServer {
             })
         );
         if tool_call_starts > 0 {
-            eprintln!("[tool-path-stage] codex_tool_path_detected");
+            log::warn!("[tool-path-stage] codex_tool_path_detected");
         } else {
-            eprintln!("[tool-path-stage] codex_no_tool_path");
+            log::warn!("[tool-path-stage] codex_no_tool_path");
         }
-        eprintln!("[request-outcome] success");
+        log::warn!("[request-outcome] success");
         let rendered = match api_family {
             ApiFamily::OpenAi => render_openai_sse(&events, &model),
             ApiFamily::Anthropic => render_anthropic_sse(&events, &model),
         };
         if matches!(api_family, ApiFamily::Anthropic) && verbose_tracing_enabled() {
-            eprintln!(
+            log::warn!(
                 "[raw-anthropic-sse-begin]\n{}\n[raw-anthropic-sse-end]",
                 rendered
             );
@@ -1455,7 +1643,7 @@ impl ProxyServer {
         let response = tokio::time::timeout(timeout, request_builder.body(body).send())
             .await
             .map_err(|_| {
-                eprintln!(
+                log::warn!(
                     "[anthropic-upstream-timeout] stage=headers timeout_secs={}",
                     timeout.as_secs()
                 );
@@ -1477,15 +1665,16 @@ impl ProxyServer {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("application/json")
             .to_string();
-        eprintln!(
+        log::warn!(
             "[anthropic-upstream-response-status] {} header_elapsed_ms={}",
-            status, header_elapsed_ms
+            status,
+            header_elapsed_ms
         );
         let mut body_stream = response.bytes_stream();
         let first_chunk = tokio::time::timeout(timeout, body_stream.next())
             .await
             .map_err(|_| {
-                eprintln!(
+                log::warn!(
                     "[anthropic-upstream-timeout] stage=first_chunk timeout_secs={}",
                     timeout.as_secs()
                 );
@@ -1504,9 +1693,10 @@ impl ProxyServer {
                 ),
             })?;
         let first_chunk_elapsed_ms = started.elapsed().as_millis();
-        eprintln!(
+        log::warn!(
             "[anthropic-upstream-first-chunk] status={} elapsed_ms={}",
-            status, first_chunk_elapsed_ms
+            status,
+            first_chunk_elapsed_ms
         );
 
         let body = if let Some(first_chunk) = first_chunk {
@@ -1926,11 +2116,11 @@ async fn refresh_claude_cli_credentials_via_cli() -> bool {
     )
     .await;
     let Ok(Ok(output)) = output else {
-        eprintln!("[claude-oauth-refresh] claude auth status timed out or failed to start");
+        log::warn!("[claude-oauth-refresh] claude auth status timed out or failed to start");
         return false;
     };
     if !output.status.success() {
-        eprintln!(
+        log::warn!(
             "[claude-oauth-refresh] claude auth status failed status={}",
             output.status
         );
@@ -2578,16 +2768,24 @@ fn log_request(method: &warp::http::Method, path: &str, headers: &warp::http::He
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
-    println!(
+    log::info!(
         "[request] method={} path={} auth_present={} user_agent={}",
-        method, path, auth_present, ua
+        method,
+        path,
+        auth_present,
+        ua
     );
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
     let args = Args::parse();
+    let log_path = resolve_log_path(args.log_path.as_deref());
+    init_rotating_logger(
+        log_path.clone(),
+        args.log_max_size_mib,
+        args.log_retained_files,
+    )?;
     let proxy = ProxyServer::new(
         &args.auth_path,
         &args.upstream_base_url,
@@ -2595,9 +2793,15 @@ async fn main() -> Result<()> {
         args.anthropic_auth_token,
     )
     .await?;
-    println!("Initializing Codex API Gateway...");
-    println!("✓ Loaded authentication from {}", args.auth_path);
-    println!(
+    log::info!("Initializing Codex API Gateway...");
+    log::info!(
+        "✓ Log rotation: {} MiB, {} retained files, path={}",
+        args.log_max_size_mib,
+        args.log_retained_files,
+        log_path.display()
+    );
+    log::info!("✓ Loaded authentication from {}", args.auth_path);
+    log::info!(
         "✓ Auth mode: {}",
         if proxy.auth_data.access_token.is_some() {
             "oauth/codex"
@@ -2607,7 +2811,7 @@ async fn main() -> Result<()> {
             "unknown"
         }
     );
-    println!(
+    log::info!(
         "✓ Account id: {}",
         if proxy.auth_data.account_id.is_some() {
             "present"
@@ -2615,8 +2819,8 @@ async fn main() -> Result<()> {
             "missing"
         }
     );
-    println!("✓ Upstream base URL: {}", proxy.upstream_base_url);
-    println!(
+    log::info!("✓ Upstream base URL: {}", proxy.upstream_base_url);
+    log::info!(
         "✓ Anthropic upstream base URL: {}",
         proxy.anthropic_upstream_base_url
     );
@@ -2648,24 +2852,24 @@ async fn main() -> Result<()> {
         .and(proxy_filter.clone())
         .and_then(universal_request_handler);
     let routes = universal_handler.with(cors).with(warp::log("codex_proxy"));
-    println!(
+    log::info!(
         "🚀 Codex API Gateway listening on http://127.0.0.1:{}",
         args.port
     );
-    println!("   Health check: http://127.0.0.1:{}/health", args.port);
-    println!(
+    log::info!("   Health check: http://127.0.0.1:{}/health", args.port);
+    log::info!(
         "   Responses endpoint: http://127.0.0.1:{}/v1/responses",
         args.port
     );
-    println!(
+    log::info!(
         "   Chat endpoint: http://127.0.0.1:{}/v1/chat/completions",
         args.port
     );
-    println!(
+    log::info!(
         "   Anthropic endpoint: http://127.0.0.1:{}/v1/messages",
         args.port
     );
-    println!("   Binding mode: localhost-only");
+    log::info!("   Binding mode: localhost-only");
     warp::serve(routes).run(([127, 0, 0, 1], args.port)).await;
     Ok(())
 }
@@ -2750,7 +2954,7 @@ async fn universal_request_handler(
             }
             let route_model = directive_model.as_deref().unwrap_or(&anthropic_req.model);
             let route = route_anthropic_model(route_model);
-            eprintln!(
+            log::warn!(
                 "[anthropic-route] model={} effective_model={} route={}",
                 requested_model,
                 route_model,

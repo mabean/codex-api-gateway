@@ -1,6 +1,6 @@
 use std::{fs, sync::Mutex};
 
-use tempfile::NamedTempFile;
+use tempfile::{tempdir, NamedTempFile};
 
 use crate::{
     anthropic_beta_header, anthropic_upstream_first_chunk_timeout,
@@ -12,7 +12,7 @@ use crate::{
     normalize_anthropic_request_model, normalize_codex_model_id, normalize_openai_responses_input,
     parse_claude_cli_access_token, render_openai_responses_json, route_anthropic_model,
     AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
-    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer, RotatingFile,
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -1247,4 +1247,39 @@ fn render_openai_responses_json_includes_text_tool_calls_and_usage() {
         .unwrap()
         .iter()
         .any(|item| item["type"] == "function_call" && item["name"] == "Edit"));
+}
+
+#[test]
+fn rotating_log_retains_only_the_configured_archives() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("gateway.log");
+    let mut log = RotatingFile::open(path.clone(), 8, 2).unwrap();
+
+    for line in ["01\n", "02\n", "03\n", "04\n", "05\n", "06\n", "07\n"] {
+        log.write_line(line.as_bytes()).unwrap();
+    }
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "07\n");
+    assert_eq!(
+        fs::read_to_string(directory.path().join("gateway.log.1")).unwrap(),
+        "05\n06\n"
+    );
+    assert_eq!(
+        fs::read_to_string(directory.path().join("gateway.log.2")).unwrap(),
+        "03\n04\n"
+    );
+    assert!(!directory.path().join("gateway.log.3").exists());
+}
+
+#[test]
+fn rotating_log_can_truncate_without_retaining_archives() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("gateway.log");
+    let mut log = RotatingFile::open(path.clone(), 4, 0).unwrap();
+
+    log.write_line(b"one\n").unwrap();
+    log.write_line(b"two\n").unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
+    assert!(!directory.path().join("gateway.log.1").exists());
 }

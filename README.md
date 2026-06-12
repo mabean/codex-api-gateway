@@ -93,6 +93,19 @@ Optional:
   --upstream-base-url https://chatgpt.com/backend-api
 ```
 
+The gateway writes to a rotating log file. On macOS the default is
+`~/Library/Logs/codex-api-gateway/gateway.log`; on Linux it uses
+`$XDG_STATE_HOME/codex-api-gateway/gateway.log` or
+`~/.local/state/codex-api-gateway/gateway.log`. The active file is rotated at
+10 MiB and five numbered archives are retained.
+
+```bash
+./target/release/codex-api-gateway \
+  --log-path ~/.local/state/codex-api-gateway/gateway.log \
+  --log-max-size-mib 20 \
+  --log-retained-files 7
+```
+
 ### 2. Local-only default
 
 This proxy should be treated as a **localhost-only service**.
@@ -291,6 +304,9 @@ Options:
       --anthropic-upstream-base-url <URL>
                                         Anthropic Messages API base URL [default: https://api.anthropic.com]
       --anthropic-auth-token <TOKEN>   Anthropic upstream API or OAuth token; alternatively set ANTHROPIC_UPSTREAM_API_KEY
+      --log-path <PATH>                Log file path; defaults to the platform application log directory
+      --log-max-size-mib <MIB>         Rotate the active log after it reaches this size in MiB [default: 10]
+      --log-retained-files <COUNT>     Number of rotated log files to retain [default: 5]
   -h, --help                           Print help
   -v, --version                        Print version
 ```
