@@ -330,6 +330,7 @@ fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
     assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.4-mini"));
+    assert!(ids.contains(&"claude-fable-5"));
     assert!(ids.contains(&"claude-opus-4-8"));
     assert!(ids.contains(&"claude-opus-4-7"));
     assert!(ids.contains(&"claude-sonnet-4-6"));

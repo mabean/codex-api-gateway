@@ -57,6 +57,13 @@ const CODEX_MODELS: &[GatewayModel] = &[
 ];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
     GatewayModel {
+        id: "claude-fable-5",
+        display_name: "Claude Fable 5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-06-09T00:00:00Z",
+        created: 1780963200,
+    },
+    GatewayModel {
         id: "claude-opus-4-8",
         display_name: "Claude Opus 4.8",
         owned_by: "anthropic-upstream",

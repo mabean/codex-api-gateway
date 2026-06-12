@@ -177,6 +177,7 @@ For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Cla
 - `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
+- `claude-fable-5`
 - `claude-opus-4-8`
 - `claude-opus-4-7`
 - `claude-sonnet-4-6`
