@@ -10,9 +10,10 @@ use crate::{
     extract_response_content, flatten_message_content, gateway_models_response,
     inject_gateway_agent_instruction, is_anthropic_oauth_token, normalize_anthropic_model_id,
     normalize_anthropic_request_model, normalize_codex_model_id, normalize_openai_responses_input,
-    parse_claude_cli_access_token, render_openai_responses_json, route_anthropic_model,
-    AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute, ChatCompletionsRequest,
-    ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer, RotatingFile,
+    parse_claude_cli_access_token, prepare_anthropic_ingress, render_openai_responses_json,
+    route_anthropic_model, AnthropicMessage, AnthropicMessagesRequest, AnthropicModelRoute,
+    ChatCompletionsRequest, ChatMessage, OpenAiResponsesRequest, ProxyError, ProxyServer,
+    RotatingFile,
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -40,6 +41,8 @@ fn normalizes_provider_prefixed_model_ids() {
 
     assert_eq!(normalize_codex_model_id("openai/gpt-5.4"), "gpt-5.4");
     assert_eq!(normalize_codex_model_id("gpt-5.4"), "gpt-5.4");
+    assert_eq!(normalize_codex_model_id("gpt-5.6"), "gpt-5.6-sol");
+    assert_eq!(normalize_codex_model_id("openai/gpt-5.6"), "gpt-5.6-sol");
     assert_eq!(
         normalize_codex_model_id("anthropic/claude-sonnet-4-6"),
         "claude-sonnet-4-6"
@@ -83,8 +86,8 @@ fn normalizes_anthropic_model_aliases_to_current_versions() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
 
-    assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-4-6");
-    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-4-8");
+    assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-5");
+    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-5");
     assert_eq!(
         normalize_anthropic_model_id("haiku"),
         "claude-haiku-4-5-20251001"
@@ -296,7 +299,7 @@ fn injects_gateway_agent_instruction_when_agent_tool_is_present() {
 
     let system = req.system.unwrap().as_str().unwrap().to_string();
     assert!(system.contains("Base system."));
-    assert!(system.contains("[gateway-model: gpt-5.5]"));
+    assert!(system.contains("[gateway-model: gpt-5.6-sol]"));
     assert!(system.contains("Agent.model to haiku"));
 }
 
@@ -314,7 +317,7 @@ fn rewrites_anthropic_request_model_aliases_before_upstream() {
     let normalized = normalize_anthropic_request_model(body).unwrap();
     let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
 
-    assert_eq!(payload["model"], serde_json::json!("claude-sonnet-4-6"));
+    assert_eq!(payload["model"], serde_json::json!("claude-sonnet-5"));
 }
 
 #[test]
@@ -327,10 +330,16 @@ fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
         .filter_map(|model| model["id"].as_str())
         .collect::<Vec<_>>();
 
+    assert!(ids.contains(&"gpt-5.6"));
+    assert!(ids.contains(&"gpt-5.6-sol"));
+    assert!(ids.contains(&"gpt-5.6-terra"));
+    assert!(ids.contains(&"gpt-5.6-luna"));
     assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.4-mini"));
     assert!(ids.contains(&"claude-fable-5"));
+    assert!(ids.contains(&"claude-opus-5"));
+    assert!(ids.contains(&"claude-sonnet-5"));
     assert!(ids.contains(&"claude-opus-4-8"));
     assert!(ids.contains(&"claude-opus-4-7"));
     assert!(ids.contains(&"claude-sonnet-4-6"));
@@ -662,7 +671,7 @@ fn anthropic_rejects_invalid_role() {
     let req = AnthropicMessagesRequest {
         model: "claude-test".to_string(),
         messages: vec![AnthropicMessage {
-            role: "system".to_string(),
+            role: "developer".to_string(),
             content: serde_json::json!("hello"),
         }],
         system: None,
@@ -678,6 +687,154 @@ fn anthropic_rejects_invalid_role() {
         }
         other => panic!("unexpected error: {:?}", other),
     }
+}
+
+#[test]
+fn anthropic_hoists_claude_code_system_messages() {
+    let proxy = ProxyServer {
+        client: crate::build_http_client().unwrap(),
+        auth_data: crate::AuthData {
+            api_key: None,
+            access_token: None,
+            account_id: None,
+        },
+        upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+    };
+
+    let req = AnthropicMessagesRequest {
+        model: "gpt-5.6-sol".to_string(),
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("first"),
+            },
+            AnthropicMessage {
+                role: "system".to_string(),
+                content: serde_json::json!("nested system"),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("second"),
+            },
+        ],
+        system: Some(serde_json::json!("top-level system")),
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: None,
+    };
+
+    let chat = proxy.convert_anthropic_to_chat(req).unwrap();
+    assert_eq!(chat.messages.len(), 3);
+    assert_eq!(chat.messages[0].role, "system");
+    assert_eq!(chat.messages[1].role, "user");
+    assert_eq!(chat.messages[2].role, "user");
+    let system = crate::flatten_message_content(&chat.messages[0].content).unwrap();
+    assert!(system.contains("top-level system"));
+    assert!(system.contains("nested system"));
+}
+
+#[test]
+fn anthropic_ingress_preparation_routes_nested_system_directive_to_codex() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let mut req = AnthropicMessagesRequest {
+        model: "haiku".to_string(),
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!(
+                    "[gateway-model: gpt-5.6]\nRun through the Codex route."
+                ),
+            },
+            AnthropicMessage {
+                role: "system".to_string(),
+                content: serde_json::json!("nested compatibility system"),
+            },
+        ],
+        system: Some(serde_json::json!("top-level system")),
+        max_tokens: Some(64),
+        stream: Some(false),
+        tools: Some(vec![serde_json::json!({
+            "name": "Agent",
+            "input_schema": {"type": "object", "properties": {}}
+        })]),
+    };
+
+    let (directive, route) = prepare_anthropic_ingress(&mut req);
+
+    assert_eq!(directive.as_deref(), Some("gpt-5.6"));
+    assert_eq!(route, AnthropicModelRoute::Codex);
+    assert_eq!(normalize_codex_model_id(&req.model), "gpt-5.6-sol");
+    assert!(req.messages.iter().all(|message| message.role != "system"));
+    assert_eq!(
+        req.messages[0].content,
+        serde_json::json!("Run through the Codex route.")
+    );
+    let system = flatten_message_content(req.system.as_ref().unwrap()).unwrap();
+    assert!(system.contains("top-level system"));
+    assert!(system.contains("nested compatibility system"));
+    assert!(system.contains("Gateway model routing for Agent"));
+
+    clear_alias_env();
+}
+
+#[test]
+fn anthropic_ingress_preparation_serializes_nested_system_for_passthrough() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+
+    let mut req = AnthropicMessagesRequest {
+        model: "opus".to_string(),
+        messages: vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("first"),
+            },
+            AnthropicMessage {
+                role: "system".to_string(),
+                content: serde_json::json!([{
+                    "type": "text",
+                    "text": "nested passthrough system",
+                    "cache_control": {"type": "ephemeral"}
+                }]),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: serde_json::json!("second"),
+            },
+        ],
+        system: None,
+        max_tokens: Some(64),
+        stream: Some(true),
+        tools: Some(vec![serde_json::json!({
+            "name": "Agent",
+            "input_schema": {"type": "object", "properties": {}}
+        })]),
+    };
+
+    let (directive, route) = prepare_anthropic_ingress(&mut req);
+
+    assert!(directive.is_none());
+    assert_eq!(route, AnthropicModelRoute::Anthropic);
+    assert!(req.messages.iter().all(|message| message.role != "system"));
+    let encoded = serde_json::to_vec(&req).unwrap();
+    let normalized = normalize_anthropic_request_model(&encoded).unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+    assert_eq!(payload["model"], serde_json::json!("claude-opus-5"));
+    assert_eq!(payload["messages"].as_array().unwrap().len(), 2);
+    let system = flatten_message_content(&payload["system"]).unwrap();
+    assert!(system.contains("nested passthrough system"));
+    assert!(system.contains("Gateway model routing for Agent"));
+    assert_eq!(
+        payload["system"][0]["cache_control"]["type"],
+        serde_json::json!("ephemeral")
+    );
+
+    clear_alias_env();
 }
 
 #[test]

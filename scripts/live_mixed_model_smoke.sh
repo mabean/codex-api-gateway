@@ -7,8 +7,10 @@ UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL:-https://chatgpt.com/backend-api}"
 ANTHROPIC_UPSTREAM_BASE_URL="${ANTHROPIC_UPSTREAM_BASE_URL:-https://api.anthropic.com}"
 ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_UPSTREAM_API_KEY:-${ANTHROPIC_OAUTH_TOKEN:-}}}"
 LOG="${LOG:-/tmp/codex-gw-mixed-model.log}"
+STDIO_LOG="${STDIO_LOG:-${LOG}.stdio}"
 OUT_DIR="${OUT_DIR:-/tmp/codex-gw-mixed-model}"
-MODELS=(${MODELS:-gpt-5.5 claude-sonnet-4-6 gpt-5.4-mini gpt-5.4})
+SUMMARY_FILE="${SUMMARY_FILE:-$OUT_DIR/summary.txt}"
+MODELS=(${MODELS:-gpt-5.6-sol claude-sonnet-5 gpt-5.6-terra claude-opus-5 gpt-5.6-luna})
 
 if [[ ! -f "$AUTH_PATH" ]]; then
   echo "missing Codex auth file: $AUTH_PATH" >&2
@@ -26,7 +28,14 @@ for model in "${MODELS[@]}"; do
 done
 
 mkdir -p "$OUT_DIR"
-rm -f "$LOG" "$OUT_DIR"/*.json
+rm -f \
+  "$LOG" \
+  "$STDIO_LOG" \
+  "$OUT_DIR"/request-*.json \
+  "$OUT_DIR"/response-*.json \
+  "$OUT_DIR"/status-*.txt \
+  "$SUMMARY_FILE"
+printf 'model\tstatus\tmarker\n' >"$SUMMARY_FILE"
 
 cargo build -q --release
 
@@ -36,12 +45,13 @@ args=(
   --auth-path "$AUTH_PATH"
   --upstream-base-url "$UPSTREAM_BASE_URL"
   --anthropic-upstream-base-url "$ANTHROPIC_UPSTREAM_BASE_URL"
+  --log-path "$LOG"
 )
 if [[ -n "$ANTHROPIC_AUTH_TOKEN" ]]; then
   args+=(--anthropic-auth-token "$ANTHROPIC_AUTH_TOKEN")
 fi
 
-CODEX_PROXY_VERBOSE="${CODEX_PROXY_VERBOSE:-1}" "${args[@]}" >"$LOG" 2>&1 &
+CODEX_PROXY_VERBOSE="${CODEX_PROXY_VERBOSE:-1}" "${args[@]}" >"$STDIO_LOG" 2>&1 &
 GW_PID=$!
 trap 'kill "$GW_PID" >/dev/null 2>&1 || true' EXIT
 
@@ -67,7 +77,7 @@ import json, sys
 model, marker = sys.argv[1], sys.argv[2]
 print(json.dumps({
     "model": model,
-    "max_tokens": 64,
+    "max_tokens": 512,
     "stream": False,
     "messages": [
         {"role": "user", "content": f"Reply with exactly: {marker}"}
@@ -98,11 +108,17 @@ PY
   fi
 
   echo "ok request=$idx model=$model marker=$marker"
+  printf '%s\t%s\t%s\n' "$model" "$status" "$marker" >>"$SUMMARY_FILE"
 done
 
 echo
 echo "responses: $OUT_DIR"
+echo "summary: $SUMMARY_FILE"
 echo "gateway log: $LOG"
+echo "gateway stdio: $STDIO_LOG"
 echo
 echo "routing evidence:"
 grep -E '^\[anthropic-route\]|POST /v1/messages|/codex/responses|Anthropic upstream|anthropic-upstream-response-status|upstream-response-status|request-outcome|codex-events-summary' "$LOG" || true
+echo
+echo "verified models:"
+cat "$SUMMARY_FILE"

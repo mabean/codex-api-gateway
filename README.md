@@ -129,7 +129,7 @@ curl -X POST http://127.0.0.1:8080/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local-test-key" \
   -d '{
-    "model": "gpt-5.4",
+    "model": "gpt-5.6-sol",
     "input": "Hello!"
   }'
 
@@ -138,7 +138,7 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local-test-key" \
   -d '{
-    "model": "gpt-5.4",
+    "model": "gpt-5.6-sol",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -147,7 +147,7 @@ curl -X POST http://127.0.0.1:8080/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-sonnet-4-6",
+    "model": "claude-sonnet-5",
     "max_tokens": 128,
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -173,7 +173,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 Why this works:
 - Claude Code talks to the Anthropic-compatible `/v1/messages` surface
 - requests whose model starts with `claude-` are forwarded to the Anthropic upstream with Claude subscription OAuth when available locally
-- requests whose model is OpenAI/Codex-style, such as `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, or `openai/gpt-5.4`, are translated into the Codex/ChatGPT upstream path
+- requests whose model is OpenAI/Codex-style, such as `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, or `openai/gpt-5.6-sol`, are translated into the Codex/ChatGPT upstream path
 - Claude family aliases `sonnet`, `opus`, and `haiku` are normalized to the current gateway-supported Claude versions before forwarding upstream
 
 Claude upstream auth resolution order:
@@ -187,10 +187,16 @@ For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Cla
 
 `GET /v1/models` returns all currently validated Codex text models plus all currently listed Claude subscription versions:
 
+- `gpt-5.6` (alias for GPT-5.6 Sol)
+- `gpt-5.6-sol`
+- `gpt-5.6-terra`
+- `gpt-5.6-luna`
 - `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
 - `claude-fable-5`
+- `claude-opus-5`
+- `claude-sonnet-5`
 - `claude-opus-4-8`
 - `claude-opus-4-7`
 - `claude-sonnet-4-6`
@@ -205,10 +211,10 @@ For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Cla
 Minimal verification:
 
 ```bash
-claude -p --bare --model gpt-5.4 --output-format text \
+claude -p --bare --model gpt-5.6-sol --output-format text \
   "Reply with exactly: CODEX_STREAM_OK"
 
-claude -p --bare --model claude-sonnet-4-6 --output-format text \
+claude -p --bare --model claude-sonnet-5 --output-format text \
   "Reply with exactly: CLAUDE_STREAM_OK"
 ```
 
@@ -228,23 +234,23 @@ Notes:
 Agent subagent model routing:
 
 ```text
-[gateway-model: gpt-5.5]
+[gateway-model: gpt-5.6-sol]
 Run this subagent task...
 ```
 
-Because Claude Code only accepts `sonnet`, `opus`, or `haiku` in `Agent.model`, the orchestrator should set `Agent.model` to `haiku` and put `[gateway-model: MODEL_ID]` as the first line of the Agent prompt. The gateway removes that line before forwarding the subagent prompt and routes the call to the requested gateway model. `MODEL_ID` can be any model returned by `GET /v1/models`, including `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and the listed `claude-*` versions.
+Because Claude Code only accepts `sonnet`, `opus`, or `haiku` in `Agent.model`, the orchestrator should set `Agent.model` to `haiku` and put `[gateway-model: MODEL_ID]` as the first line of the Agent prompt. The gateway removes that line before forwarding the subagent prompt and routes the call to the requested gateway model. `MODEL_ID` can be any model returned by `GET /v1/models`, including the GPT-5.6 family and the listed `claude-*` versions.
 
 Gateway alias overrides:
 
 ```bash
 # Defaults:
-# CODEX_GATEWAY_ALIAS_SONNET=claude-sonnet-4-6
-# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-4-8
+# CODEX_GATEWAY_ALIAS_SONNET=claude-sonnet-5
+# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-5
 # CODEX_GATEWAY_ALIAS_HAIKU=claude-haiku-4-5-20251001
 
 # Optional fallback: make every `haiku` request use Codex when no
 # [gateway-model: ...] directive is present.
-export CODEX_GATEWAY_ALIAS_HAIKU="gpt-5.4-mini"
+export CODEX_GATEWAY_ALIAS_HAIKU="gpt-5.6-luna"
 ```
 
 ### 6. Live mixed-model smoke test
@@ -256,19 +262,20 @@ AUTH_PATH="$HOME/.codex/auth.json" scripts/live_mixed_model_smoke.sh
 ```
 
 Default sequence:
-- `gpt-5.5` → Codex/ChatGPT upstream
-- `claude-sonnet-4-6` → Anthropic upstream
-- `gpt-5.4-mini` → Codex/ChatGPT upstream
-- `gpt-5.4` → Codex/ChatGPT upstream
+- `gpt-5.6-sol` → Codex/ChatGPT upstream
+- `claude-sonnet-5` → Anthropic upstream
+- `gpt-5.6-terra` → Codex/ChatGPT upstream
+- `claude-opus-5` → Anthropic upstream
+- `gpt-5.6-luna` → Codex/ChatGPT upstream
 
 The script starts the local gateway, calls `/v1/messages` for each model in order, checks exact response markers, and prints routing evidence from gateway logs.
 
 Notes:
 - `AUTH_PATH` defaults to `$HOME/.codex/auth.json`
-- `MODELS="gpt-5.5 claude-sonnet-4-6 gpt-5.4-mini gpt-5.4"` can override the sequence
+- `MODELS="gpt-5.6-sol claude-sonnet-5"` can override the sequence
 - Claude calls use `ANTHROPIC_OAUTH_TOKEN`, local Claude Code credentials, or `ANTHROPIC_UPSTREAM_API_KEY` / `--anthropic-auth-token`
 
-For a fuller Claude Code compatibility check, including text-only calls, direct `/v1/messages` JSON/SSE calls, file-edit `tool_use`, `tool_result` follow-ups, and `Bash` tool calls:
+For a fuller Claude Code compatibility check, including text-only calls, direct `/v1/messages` JSON/SSE calls with nested `system` messages, file-edit `tool_use`, and a verified `Bash` `tool_use`/`tool_result` round trip:
 
 ```bash
 AUTH_PATH="$HOME/.codex/auth.json" scripts/live_claude_code_acceptance.sh

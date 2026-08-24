@@ -19,11 +19,11 @@ const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
 const CLAUDE_CODE_CREDENTIALS_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
-const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-4-6";
-const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-4-8";
+const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-5";
+const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-5";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
-const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.5]`, `[gateway-model: gpt-5.4]`, `[gateway-model: gpt-5.4-mini]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
+const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.6-sol]`, `[gateway-model: gpt-5.6-terra]`, `[gateway-model: gpt-5.6-luna]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
 const CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 30;
 const CODEX_UPSTREAM_TIMEOUT_SECS_MIN: u64 = 5;
 const CODEX_UPSTREAM_TIMEOUT_SECS_MAX: u64 = 300;
@@ -38,6 +38,34 @@ const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX: u64 = 120;
 const DEFAULT_LOG_MAX_SIZE_MIB: u64 = 10;
 const DEFAULT_LOG_RETAINED_FILES: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "gpt-5.6",
+        display_name: "GPT 5.6 (Sol alias)",
+        owned_by: "openai-codex",
+        created_at: "2026-07-09T00:00:00Z",
+        created: 1783555200,
+    },
+    GatewayModel {
+        id: "gpt-5.6-sol",
+        display_name: "GPT 5.6 Sol",
+        owned_by: "openai-codex",
+        created_at: "2026-07-09T00:00:00Z",
+        created: 1783555200,
+    },
+    GatewayModel {
+        id: "gpt-5.6-terra",
+        display_name: "GPT 5.6 Terra",
+        owned_by: "openai-codex",
+        created_at: "2026-07-09T00:00:00Z",
+        created: 1783555200,
+    },
+    GatewayModel {
+        id: "gpt-5.6-luna",
+        display_name: "GPT 5.6 Luna",
+        owned_by: "openai-codex",
+        created_at: "2026-07-09T00:00:00Z",
+        created: 1783555200,
+    },
     GatewayModel {
         id: "gpt-5.5",
         display_name: "GPT 5.5",
@@ -67,6 +95,20 @@ const ANTHROPIC_MODELS: &[GatewayModel] = &[
         owned_by: "anthropic-upstream",
         created_at: "2026-06-09T00:00:00Z",
         created: 1780963200,
+    },
+    GatewayModel {
+        id: "claude-opus-5",
+        display_name: "Claude Opus 5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-07-24T00:00:00Z",
+        created: 1784851200,
+    },
+    GatewayModel {
+        id: "claude-sonnet-5",
+        display_name: "Claude Sonnet 5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-06-30T00:00:00Z",
+        created: 1782777600,
     },
     GatewayModel {
         id: "claude-opus-4-8",
@@ -1041,8 +1083,9 @@ impl ProxyServer {
 
     fn convert_anthropic_to_chat(
         &self,
-        anthropic_req: AnthropicMessagesRequest,
+        mut anthropic_req: AnthropicMessagesRequest,
     ) -> Result<ChatCompletionsRequest, ProxyError> {
+        hoist_anthropic_system_messages(&mut anthropic_req);
         validate_anthropic_request(&anthropic_req)?;
         let mut messages = Vec::new();
         if let Some(system) = anthropic_req.system {
@@ -1811,6 +1854,9 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
 
 fn normalize_codex_model_id(model: &str) -> String {
     let short = model.rsplit('/').next().unwrap_or(model);
+    if short.eq_ignore_ascii_case("gpt-5.6") {
+        return "gpt-5.6-sol".to_string();
+    }
     if let Some(target) = resolve_gateway_model_alias(short) {
         return target.rsplit('/').next().unwrap_or(&target).to_string();
     }
@@ -1958,6 +2004,46 @@ fn inject_gateway_agent_instruction(req: &mut AnthropicMessagesRequest) {
         return;
     }
     req.system = Some(append_gateway_agent_instruction(req.system.take()));
+}
+
+fn append_anthropic_system_value(system: Option<Value>, value: Value) -> Value {
+    let mut blocks = Vec::new();
+    for item in system.into_iter().chain(std::iter::once(value)) {
+        match item {
+            Value::Null => {}
+            Value::String(text) => blocks.push(text_system_block(text)),
+            Value::Array(items) => blocks.extend(items),
+            other => blocks.push(other),
+        }
+    }
+    Value::Array(blocks)
+}
+
+fn hoist_anthropic_system_messages(req: &mut AnthropicMessagesRequest) {
+    let mut system = req.system.take();
+    let mut messages = Vec::with_capacity(req.messages.len());
+    for message in req.messages.drain(..) {
+        if message.role == "system" {
+            system = Some(append_anthropic_system_value(system, message.content));
+        } else {
+            messages.push(message);
+        }
+    }
+    req.system = system;
+    req.messages = messages;
+}
+
+fn prepare_anthropic_ingress(
+    req: &mut AnthropicMessagesRequest,
+) -> (Option<String>, AnthropicModelRoute) {
+    hoist_anthropic_system_messages(req);
+    inject_gateway_agent_instruction(req);
+    let directive_model = apply_gateway_model_directive(req);
+    if let Some(model) = &directive_model {
+        req.model = model.clone();
+    }
+    let route = route_anthropic_model(&req.model);
+    (directive_model, route)
 }
 
 fn resolve_gateway_model_alias(model: &str) -> Option<String> {
@@ -2577,7 +2663,10 @@ fn validate_anthropic_request(req: &AnthropicMessagesRequest) -> Result<(), Prox
     for (idx, msg) in req.messages.iter().enumerate() {
         if msg.role != "user" && msg.role != "assistant" {
             return Err(ProxyError::Validation {
-                message: "anthropic messages role must be 'user' or 'assistant'".to_string(),
+                message: format!(
+                    "anthropic messages role must be 'user' or 'assistant'; received {:?}",
+                    msg.role
+                ),
                 field: Some(format!("messages[{}].role", idx)),
             });
         }
@@ -2947,17 +3036,11 @@ async fn universal_request_handler(
                 Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
             };
             let requested_model = anthropic_req.model.clone();
-            inject_gateway_agent_instruction(&mut anthropic_req);
-            let directive_model = apply_gateway_model_directive(&mut anthropic_req);
-            if let Some(model) = &directive_model {
-                anthropic_req.model = model.clone();
-            }
-            let route_model = directive_model.as_deref().unwrap_or(&anthropic_req.model);
-            let route = route_anthropic_model(route_model);
+            let (directive_model, route) = prepare_anthropic_ingress(&mut anthropic_req);
             log::warn!(
                 "[anthropic-route] model={} effective_model={} route={}",
                 requested_model,
-                route_model,
+                anthropic_req.model,
                 match route {
                     AnthropicModelRoute::Codex => "codex",
                     AnthropicModelRoute::Anthropic => "anthropic",
