@@ -1,168 +1,67 @@
 # Codex API Gateway
 
-> **Status:** prototype under hardening
->
-> **Security posture:** local-only by default • no cloud relay • explicit trust boundary • security docs in repo
->
-> **Current reality:** this fork is under active audit/hardening and should not yet be treated as a production-grade token-handling proxy.
+A local gateway that lets OpenAI-compatible and Anthropic-compatible clients use Codex/ChatGPT and Claude upstreams through one local base URL.
 
-A local-first API gateway that exposes OpenAI-compatible and Anthropic-compatible clients over the ChatGPT/Codex upstream, suitable for ChatGPT Plus and higher plans that support the Codex path.
+> **Experimental:** the gateway handles local OAuth credentials and is intended for single-user development on `127.0.0.1`. Do not expose it to a LAN or the public internet.
 
-## Trust signals
+## What it provides
 
-- **Status:** prototype under hardening
-- **Default exposure:** localhost-only
-- **Cloud relay:** none intended
-- **Telemetry:** none intended
-- **Security docs:** `SECURITY.md`, `THREAT_MODEL.md`, `BUILD.md`
-- **Verification baseline:** `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo build`
-- **Ingress surfaces:** OpenAI-compatible `/v1/responses` and `/v1/chat/completions`, Anthropic-compatible `/v1/messages`, with streaming support
-- **Secrets posture:** local auth material only; auth files must not be committed or publicly exposed
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/responses` | OpenAI Responses-compatible requests through the Codex/ChatGPT backend |
+| `POST /v1/chat/completions` | OpenAI Chat Completions-compatible requests through the Codex/ChatGPT backend |
+| `POST /v1/messages` | Anthropic Messages-compatible requests, routed by model family |
+| `GET /v1/models` | Models advertised by the gateway |
+| `GET /health` | Local process health |
 
-This is a trust-boundary and auditability signal, not a claim of production readiness.
+The gateway supports JSON and streaming responses, Claude Code text flows, and the core `Edit`, `Read`, `Write`, and `Bash` tool loop.
 
-## Overview
+Requests to `/v1/messages` are routed as follows:
 
-This proxy bridges the gap between:
-- **Input**: OpenAI Chat Completions or Anthropic Messages API format
-- **Core transport**: ChatGPT/Codex-backed upstream request path
-- **Output**: OpenAI-compatible or Anthropic-compatible response envelopes
+- `claude-*` models go to the Anthropic upstream.
+- GPT and other Codex-style models go to the Codex/ChatGPT upstream.
 
-## Trust signals / security notes
+## Requirements
 
-- Local-first design is the target default
-- No cloud relay is intended
-- Public exposure is unsafe-by-default
-- Secrets must never be logged
-- This repo is being hardened for reproducible builds and explicit auditability
-- Security docs in this repo:
-- `SECURITY.md`
-- `THREAT_MODEL.md`
-- `BUILD.md`
-- `HARDENING_PLAN.md`
+- A current stable Rust toolchain.
+- A local Codex auth file, normally `~/.codex/auth.json`.
+- A ChatGPT account with access to the Codex backend path.
+- For Claude models: a Claude Code login, `ANTHROPIC_OAUTH_TOKEN`, or `ANTHROPIC_UPSTREAM_API_KEY`.
 
-## Current status
+An OpenAI API key alone does not grant access to the ChatGPT/Codex backend.
 
-Subscription note:
-- this gateway is intended for ChatGPT plans that can access the Codex/ChatGPT upstream path, such as ChatGPT Plus and above
-- it does not convert a basic API key into Codex access if the upstream account itself does not have that path available
-
-This fork is currently in **audit and hardening mode**.
-
-Important:
-- the codebase is still being aligned with the real upstream contract
-- the primary request path now uses the real backend path instead of a fake success stub
-- health/readiness reporting is more honest about config vs upstream verification
-- security-sensitive deployment patterns must be treated as advanced/unsafe until explicitly documented
-- maturity claims should be interpreted conservatively until the hardening checklist is complete
-
-## Features (current / target split)
-
-Current:
-- OpenAI-compatible `/v1/responses` ingress for Codex/OpenAI-native clients
-- OpenAI-compatible `/v1/chat/completions` ingress
-- Anthropic-compatible `/v1/messages` ingress with streaming support
-- Structured validation and error envelopes for both API families
-- Local auth file loading
-- Message/content conversion baseline
-- Direct Codex backend request path in active development
-
-Target:
-- Fully validated ChatGPT/Codex-backed upstream transport
-- Verified streaming support for both compatibility surfaces
-- Hardened auth handling
-- Auditable local-only deployment defaults
-
-## Quick Start
-
-### 1. Build and Run (local-only)
+## Quick start
 
 ```bash
 git clone https://github.com/mabean/codex-api-gateway.git
 cd codex-api-gateway
 cargo build --release
-./target/release/codex-api-gateway --port 8080 --auth-path ~/.codex/auth.json
-```
 
-Optional:
-
-```bash
 ./target/release/codex-api-gateway \
   --port 8080 \
-  --auth-path ~/.codex/auth.json \
-  --upstream-base-url https://chatgpt.com/backend-api
+  --auth-path ~/.codex/auth.json
 ```
 
-The gateway writes to a rotating log file. On macOS the default is
-`~/Library/Logs/codex-api-gateway/gateway.log`; on Linux it uses
-`$XDG_STATE_HOME/codex-api-gateway/gateway.log` or
-`~/.local/state/codex-api-gateway/gateway.log`. The active file is rotated at
-10 MiB and five numbered archives are retained.
+Confirm that the local process is running:
 
 ```bash
-./target/release/codex-api-gateway \
-  --log-path ~/.local/state/codex-api-gateway/gateway.log \
-  --log-max-size-mib 20 \
-  --log-retained-files 7
-```
-
-### 2. Local-only default
-
-This proxy should be treated as a **localhost-only service**.
-
-Unsafe-by-default until hardening is complete:
-- ngrok exposure
-- reverse tunnels
-- public bind addresses
-- shared LAN exposure
-
-If remote exposure is ever needed, it must be documented as an advanced deployment mode with downstream authentication and a separate threat review.
-
-### 3. Test locally
-
-```bash
-# Health check
 curl http://127.0.0.1:8080/health
+```
 
-# Test completion (OpenAI Responses ingress)
-curl -X POST http://127.0.0.1:8080/v1/responses \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer local-test-key" \
+Send an OpenAI Responses request:
+
+```bash
+curl http://127.0.0.1:8080/v1/responses \
+  -H 'content-type: application/json' \
   -d '{
     "model": "gpt-5.6-sol",
-    "input": "Hello!"
-  }'
-
-# Test completion (OpenAI-compatible chat ingress)
-curl -X POST http://127.0.0.1:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer local-test-key" \
-  -d '{
-    "model": "gpt-5.6-sol",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-
-# Test completion (Anthropic-compatible ingress)
-curl -X POST http://127.0.0.1:8080/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{
-    "model": "claude-sonnet-5",
-    "max_tokens": 128,
-    "messages": [{"role": "user", "content": "Hello!"}]
+    "input": "Reply with exactly: OK"
   }'
 ```
 
-### 4. Client integration
+## Claude Code
 
-Any downstream client should initially be configured against a **localhost** base URL only.
-Do not expose the service publicly during the hardening phase.
-
-### 5. Claude Code setup
-
-Claude Code can be pointed at this gateway through Anthropic-compatible env vars.
-
-Recommended global shell configuration:
+Point Claude Code at the local Anthropic-compatible endpoint:
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
@@ -170,276 +69,114 @@ export ANTHROPIC_API_KEY="local-proxy"
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
-Why this works:
-- Claude Code talks to the Anthropic-compatible `/v1/messages` surface
-- requests whose model starts with `claude-` are forwarded to the Anthropic upstream with Claude subscription OAuth when available locally
-- requests whose model is OpenAI/Codex-style, such as `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, or `openai/gpt-5.6-sol`, are translated into the Codex/ChatGPT upstream path
-- Claude family aliases `sonnet`, `opus`, and `haiku` are normalized to the current gateway-supported Claude versions before forwarding upstream
+`local-proxy` is only a local placeholder. Upstream authentication is resolved separately by the gateway.
 
-Claude upstream auth resolution order:
-- `--anthropic-auth-token` / `ANTHROPIC_UPSTREAM_API_KEY`
-- `ANTHROPIC_OAUTH_TOKEN`
-- local Claude Code credentials from macOS Keychain service `Claude Code-credentials`
-- local Claude Code credentials file `~/.claude/.credentials.json`
-- inbound real Anthropic `authorization` / `x-api-key` headers
-
-For Claude subscription OAuth tokens (`sk-ant-oat...`), the gateway uses the Claude Code HTTP contract: `Authorization: Bearer`, `x-app: cli`, the Claude Code user agent/client-platform headers, `oauth-2025-04-20`, and the Claude Code system attribution prefix required by subscription inference.
-
-`GET /v1/models` returns all currently validated Codex text models plus all currently listed Claude subscription versions:
-
-- `gpt-5.6` (alias for GPT-5.6 Sol)
-- `gpt-5.6-sol`
-- `gpt-5.6-terra`
-- `gpt-5.6-luna`
-- `gpt-5.5`
-- `gpt-5.4`
-- `gpt-5.4-mini`
-- `claude-fable-5`
-- `claude-opus-5`
-- `claude-sonnet-5`
-- `claude-opus-4-8`
-- `claude-opus-4-7`
-- `claude-sonnet-4-6`
-- `claude-opus-4-6`
-- `claude-opus-4-5-20251101`
-- `claude-haiku-4-5-20251001`
-- `claude-sonnet-4-5-20250929`
-- `claude-opus-4-1-20250805`
-- `claude-opus-4-20250514`
-- `claude-sonnet-4-20250514`
-
-Minimal verification:
+You can now use either upstream through the same client:
 
 ```bash
-claude -p --bare --model gpt-5.6-sol --output-format text \
-  "Reply with exactly: CODEX_STREAM_OK"
-
-claude -p --bare --model claude-sonnet-5 --output-format text \
-  "Reply with exactly: CLAUDE_STREAM_OK"
+claude -p --model gpt-5.6-sol "Reply with exactly: CODEX_OK"
+claude -p --model claude-sonnet-5 "Reply with exactly: CLAUDE_OK"
 ```
 
-Expected output:
+## Models and aliases
 
-```text
-CODEX_STREAM_OK
-CLAUDE_STREAM_OK
-```
-
-Notes:
-- keep the proxy running locally on port `8080`
-- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` reduces unrelated first-party side traffic during proxy usage
-- Claude Code's `Agent` tool currently validates subagent model names before the gateway sees a request, and only accepts the aliases `sonnet`, `opus`, and `haiku`; when the gateway sees the `Agent` tool it injects an orchestrator instruction for per-call model routing through a prompt directive
-- the gateway is currently intended for local development use, not public exposure
-
-Agent subagent model routing:
-
-```text
-[gateway-model: gpt-5.6-sol]
-Run this subagent task...
-```
-
-Because Claude Code only accepts `sonnet`, `opus`, or `haiku` in `Agent.model`, the orchestrator should set `Agent.model` to `haiku` and put `[gateway-model: MODEL_ID]` as the first line of the Agent prompt. The gateway removes that line before forwarding the subagent prompt and routes the call to the requested gateway model. `MODEL_ID` can be any model returned by `GET /v1/models`, including the GPT-5.6 family and the listed `claude-*` versions.
-
-Gateway alias overrides:
+Query the live gateway catalog instead of hard-coding the full list:
 
 ```bash
-# Defaults:
-# CODEX_GATEWAY_ALIAS_SONNET=claude-sonnet-5
-# CODEX_GATEWAY_ALIAS_OPUS=claude-opus-5
-# CODEX_GATEWAY_ALIAS_HAIKU=claude-haiku-4-5-20251001
+curl http://127.0.0.1:8080/v1/models
+```
 
-# Optional fallback: make every `haiku` request use Codex when no
-# [gateway-model: ...] directive is present.
+The main model families currently include:
+
+- GPT-5.6: `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
+- `gpt-5.6`, normalized by the gateway to `gpt-5.6-sol`.
+- Claude 5: `claude-fable-5`, `claude-opus-5`, and `claude-sonnet-5`.
+- Older GPT and Claude catalog entries returned by `/v1/models`.
+
+Claude aliases default to:
+
+```text
+sonnet -> claude-sonnet-5
+opus   -> claude-opus-5
+haiku  -> claude-haiku-4-5-20251001
+```
+
+Override them when needed:
+
+```bash
 export CODEX_GATEWAY_ALIAS_HAIKU="gpt-5.6-luna"
 ```
 
-### 6. Live mixed-model smoke test
+Claude Code restricts `Agent.model` to `sonnet`, `opus`, or `haiku`. To route an individual subagent to any gateway model, set `Agent.model` to `haiku` and start its prompt with:
 
-The repository has unit tests for request conversion and routing decisions, plus a live smoke script for sequential calls through the gateway.
-
-```bash
-AUTH_PATH="$HOME/.codex/auth.json" scripts/live_mixed_model_smoke.sh
+```text
+[gateway-model: gpt-5.6-terra]
 ```
 
-Default sequence:
-- `gpt-5.6-sol` → Codex/ChatGPT upstream
-- `claude-sonnet-5` → Anthropic upstream
-- `gpt-5.6-terra` → Codex/ChatGPT upstream
-- `claude-opus-5` → Anthropic upstream
-- `gpt-5.6-luna` → Codex/ChatGPT upstream
+The gateway removes this directive before forwarding the prompt.
 
-The script starts the local gateway, calls `/v1/messages` for each model in order, checks exact response markers, and prints routing evidence from gateway logs.
+## Authentication
 
-Notes:
-- `AUTH_PATH` defaults to `$HOME/.codex/auth.json`
-- `MODELS="gpt-5.6-sol claude-sonnet-5"` can override the sequence
-- Claude calls use `ANTHROPIC_OAUTH_TOKEN`, local Claude Code credentials, or `ANTHROPIC_UPSTREAM_API_KEY` / `--anthropic-auth-token`
+Codex credentials are read from `--auth-path`. Legacy Codex auth files and OpenClaw-style auth profile files are supported.
 
-For a fuller Claude Code compatibility check, including text-only calls, direct `/v1/messages` JSON/SSE calls with nested `system` messages, file-edit `tool_use`, and a verified `Bash` `tool_use`/`tool_result` round trip:
+Anthropic authentication is resolved in this order:
 
-```bash
-AUTH_PATH="$HOME/.codex/auth.json" scripts/live_claude_code_acceptance.sh
-```
+1. `--anthropic-auth-token` or `ANTHROPIC_UPSTREAM_API_KEY`.
+2. `ANTHROPIC_OAUTH_TOKEN`.
+3. Local Claude Code credentials from the macOS Keychain or `~/.claude/.credentials.json`.
+4. A real inbound `Authorization` or `x-api-key` header.
 
-## How It Works
-
-### Request Flow
-
-OpenAI-compatible path:
-1. **Client** → Responses or Chat Completions format → **Proxy**
-2. **Proxy** → Normalizes onto the internal Responses-style upstream request → **ChatGPT/Codex backend**
-3. **Backend** → SSE/text result → **Proxy**
-4. **Proxy** → Converts to Chat Completions response → **Client**
-
-Anthropic-compatible path:
-1. **Client** → Messages format → **Proxy**
-2. **Proxy** → Converts to internal chat shape → upstream request
-3. **Backend** → SSE/text result → **Proxy**
-4. **Proxy** → Converts to Anthropic message response → **Client**
+Never commit or share these credentials.
 
 ## Configuration
 
-### Command Line Options
+Run `codex-api-gateway --help` for the complete CLI reference. The most useful options are:
 
-```bash
-codex-api-gateway [OPTIONS]
-
-Options:
-  -p, --port <PORT>                    Port to listen on [default: 8080]
-      --auth-path <PATH>               Path to Codex auth.json [default: ~/.codex/auth.json]
-      --upstream-base-url <URL>        Upstream ChatGPT/Codex base URL [default: https://chatgpt.com/backend-api]
-      --anthropic-upstream-base-url <URL>
-                                        Anthropic Messages API base URL [default: https://api.anthropic.com]
-      --anthropic-auth-token <TOKEN>   Anthropic upstream API or OAuth token; alternatively set ANTHROPIC_UPSTREAM_API_KEY
-      --log-path <PATH>                Log file path; defaults to the platform application log directory
-      --log-max-size-mib <MIB>         Rotate the active log after it reaches this size in MiB [default: 10]
-      --log-retained-files <COUNT>     Number of rotated log files to retain [default: 5]
-  -h, --help                           Print help
-  -v, --version                        Print version
+```text
+--port <PORT>                              default: 8080
+--auth-path <PATH>                         default: ~/.codex/auth.json
+--upstream-base-url <URL>                  default: https://chatgpt.com/backend-api
+--anthropic-upstream-base-url <URL>        default: https://api.anthropic.com
+--anthropic-auth-token <TOKEN>
+--log-path <PATH>
+--log-max-size-mib <MIB>                   default: 10
+--log-retained-files <COUNT>               default: 5
 ```
 
-### Authentication
+Logs rotate automatically. The default path is `~/Library/Logs/codex-api-gateway/gateway.log` on macOS and `$XDG_STATE_HOME/codex-api-gateway/gateway.log` or `~/.local/state/codex-api-gateway/gateway.log` on Linux.
 
-The proxy reads authentication from a local auth file. Treat that file as highly sensitive.
+Timeouts and retry counts can be adjusted with:
 
-Security guidance:
-- do not copy the auth file around casually
-- do not commit it
-- do not expose the proxy publicly while it can use those credentials
-- do not enable verbose logging without checking redaction behavior first
-
-The proxy supports:
-- legacy auth files with token fields
-- OpenClaw-style auth profile files with `lastGood.openai-codex`
-
-### Codex upstream timeout and retry
-
-Codex/ChatGPT upstream calls are retried when the request times out, the response body read times out, or the upstream returns a retryable temporary status such as `429`, `502`, `503`, or `504`.
-
-Defaults:
-
-```bash
-CODEX_GATEWAY_CODEX_TIMEOUT_SECS=30
-CODEX_GATEWAY_CODEX_MAX_ATTEMPTS=1
+```text
+CODEX_GATEWAY_CODEX_TIMEOUT_SECS                    default: 30, range: 5..300
+CODEX_GATEWAY_CODEX_MAX_ATTEMPTS                    default: 1,  range: 1..5
+CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS              default: 12, range: 5..300
+CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS              default: 1,  range: 1..5
+CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS    default: 12, range: 3..120
 ```
 
-The gateway clamps timeout to `5..300` seconds and attempts to `1..5`.
+## Verification
 
-Claude Code `Agent` requests that use `[gateway-model: ...]` get a shorter policy by default because Claude Code already retries the outer request:
-
-```bash
-CODEX_GATEWAY_CODEX_AGENT_TIMEOUT_SECS=12
-CODEX_GATEWAY_CODEX_AGENT_MAX_ATTEMPTS=1
-```
-
-These values use the same clamps as the default Codex upstream policy.
-
-Anthropic subscription passthrough streams upstream response chunks directly to the client. The gateway waits briefly for the first upstream chunk, then lets the stream continue normally:
+Run the local checks described in [BUILD.md](BUILD.md). Two optional live suites verify real credentials and upstream behavior:
 
 ```bash
-CODEX_GATEWAY_ANTHROPIC_FIRST_CHUNK_TIMEOUT_SECS=12
+scripts/live_mixed_model_smoke.sh
+scripts/live_claude_code_acceptance.sh
 ```
 
-The Anthropic first-chunk timeout is clamped to `3..120` seconds.
+Live suites consume upstream quota and require valid local Codex and Claude credentials.
 
-## API Endpoints
+## Limitations
 
-### Health Check
-- **GET** `/health`
-- Returns service status
+- This is not a production or multi-tenant gateway.
+- Anthropic compatibility covers the subset needed by the supported local workflows, not the entire Anthropic API.
+- Compatibility-surface usage accounting is approximate.
+- Model availability depends on the current account and upstream entitlements.
+- Upstream private contracts can change without notice.
+- Verbose diagnostics may contain prompts, responses, and tool arguments.
 
-### OpenAI-compatible
-- **POST** `/v1/responses`
-- **POST** `/v1/chat/completions`
-- **GET** `/v1/models`
-
-### Anthropic-compatible
-- **POST** `/v1/messages`
-- Current support: non-streaming, text-oriented baseline
-
-## Error behavior
-
-The proxy now distinguishes:
-- request validation errors
-- auth/config errors
-- upstream authorization failures
-- upstream availability/protocol failures
-
-OpenAI-compatible errors are returned in an OpenAI-style `error` envelope.
-Anthropic-compatible errors are returned in an Anthropic-style `{"type":"error","error":...}` envelope.
-
-## Security roadmap
-
-This fork is being hardened toward:
-- localhost-only defaults
-- explicit allowed outbound hosts
-- secret-safe logging
-- reproducible builds
-- pinned dependency graph
-- security documentation and review checklist
-
-See:
-- `HARDENING_PLAN.md`
-- `SECURITY.md`
-- `THREAT_MODEL.md`
-- `BUILD.md`
-
-## Security-sensitive caveats
-
-- Treat OAuth/auth files as secrets.
-- Do not expose the proxy publicly during the hardening phase.
-- Do not assume successful health checks mean the upstream transport is fully validated.
-- `config_ready` / `auth_material_present` are not the same thing as proven upstream auth validity.
-- Prefer local testing until the hardening plan is complete.
-
-## Known limitations
-
-- This fork is still under hardening and protocol verification.
-- OAuth/Codex backend behavior is still being validated against the real upstream contract.
-- Anthropic-compatible ingress is implemented with streaming, but broader Claude/Anthropic protocol parity is still intentionally limited.
-- Usage/token accounting is currently placeholder-level on the compatibility surface.
-- Public deployment guidance is intentionally omitted for now.
-
-## Development
-
-### Building
-
-```bash
-cargo build
-cargo test
-cargo clippy
-cargo fmt
-```
-
-### Adding Features
-
-The proxy is designed to be extensible:
-
-- **New endpoints**: Add routes in `main.rs`
-- **Format conversion**: Modify conversion functions
-- **Authentication**: Extend `AuthData` structure
-- **Streaming**: Add SSE support for real-time responses
+See [SECURITY.md](SECURITY.md) before running the gateway and [THREAT_MODEL.md](THREAT_MODEL.md) before changing its trust boundary.
 
 ## License
 
-This project is part of the Codex ecosystem and follows the same licensing as the main Codex repository.
+[MIT](LICENSE)

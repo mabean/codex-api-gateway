@@ -1,34 +1,44 @@
-# THREAT MODEL
+# Threat model
 
-## Trust boundary
-The proxy is designed to run on the same machine as the user and consume local auth material. The primary trust boundary is:
+## Scope
 
-- trusted local process
-- trusted local auth store
-- trusted upstream Codex/ChatGPT backend
+The supported deployment is one gateway process on the same trusted machine as one user. The gateway reads local credentials, accepts requests from local clients, and forwards them to configured upstream services.
 
-## Main threats
-1. Secret leakage through logs
-2. Secret leakage through accidental public exposure
-3. Supply-chain compromise through dependencies
-4. Hidden or unexpected outbound network traffic
-5. Fake-success behavior that hides real upstream/auth failures
-6. Protocol drift between documented API surfaces and actual behavior
-7. Local planning artifacts accidentally committed as if they were product documentation
+Public hosting, shared credentials, multi-user isolation, and untrusted local clients are outside the supported scope.
 
-## Non-goals for current phase
-- multi-tenant deployment
-- public internet deployment
-- centralized auth distribution
-- production SaaS hosting model
-- full Anthropic protocol parity
+## Assets
 
-## Mitigations currently present
-- localhost bind
-- auth validation for legacy Codex auth and OpenClaw auth profile stores
-- honest error responses
-- removal of fake response paths
-- transport/header minimization
-- reproducible build path
-- explicit OpenAI/Anthropic baseline documentation
-- sensitive wire/body diagnostics are opt-in behind `CODEX_PROXY_VERBOSE=1`
+- Codex and Claude credentials;
+- account identifiers;
+- prompts, responses, and tool data;
+- integrity of routed requests and returned responses.
+
+## Trust boundaries
+
+1. Local client to gateway.
+2. Gateway to local credential stores.
+3. Gateway to the configured Codex/ChatGPT upstream.
+4. Gateway to the configured Anthropic upstream.
+5. Build process to third-party Rust dependencies.
+
+## Main risks and mitigations
+
+| Risk | Current mitigation |
+| --- | --- |
+| Public or LAN exposure leaks subscription access | Listener is bound to `127.0.0.1`; public deployment is unsupported |
+| Credentials leak through logs | Raw credentials are not logged; detailed body tracing is opt-in |
+| Malicious custom upstream captures data | Upstream URLs are explicit configuration and should be treated as trust-boundary changes |
+| Protocol drift causes silent or misleading success | Structured upstream errors, live acceptance scripts, and contract-focused tests |
+| Tool-call translation changes behavior | Tool history and streaming paths have regression and live acceptance coverage |
+| Dependency compromise | Committed lockfile, CI checks, and a minimum crate-age policy |
+| Stale local credentials are forwarded | Credential parsing validates usable material; upstream authorization failures remain visible |
+
+## Residual risks
+
+- Local processes can call the gateway because it does not provide strong downstream authentication.
+- Upstream private contracts may change independently of this project.
+- Verbose diagnostics can expose sensitive content.
+- Compatibility translation is intentionally incomplete and may lose unsupported fields.
+- A compromised trusted machine can read the same credentials as the gateway.
+
+Any proposal to expose the service beyond localhost requires a new threat review, downstream authentication, authorization, rate limiting, and secret-isolation design.

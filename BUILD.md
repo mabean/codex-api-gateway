@@ -1,30 +1,43 @@
-# BUILD
+# Build and verification
 
-## Local build
+## Requirements
+
+- Current stable Rust toolchain with `rustfmt` and `clippy`.
+- Python 3 for the dependency-age check.
+
+## Build
+
 ```bash
-cargo build --frozen
+cargo build --release
 ```
 
-## Local tests
+`Cargo.lock` is committed. Use `--locked` when a build must fail instead of updating the lockfile:
+
 ```bash
-cargo test --frozen
+cargo build --release --locked
 ```
 
-## Optional lint
+## Local verification
+
+Run the same checks enforced by CI:
+
 ```bash
+cargo fmt --check
+cargo test --all-targets
+python3 scripts/check_crate_age.py 7
 cargo clippy --all-targets --all-features -- -D warnings
+cargo build --release
 ```
 
-## Current verification baseline
-As of 2026-05-02, the repo has been checked locally with:
-- `cargo fmt --check`
-- `cargo test`
-- `python3 scripts/check_crate_age.py 7`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo build`
+CI runs this baseline on Linux and macOS.
 
-## Notes
-- `Cargo.lock` should be committed and kept current
-- prefer reproducible builds (`--frozen`) in CI and local verification
-- CI enforces a minimum dependency age policy of 7 days for crates pulled from crates.io
-- if vendoring is introduced later, document the exact vendor workflow here
+## Live verification
+
+Unit tests do not prove account entitlements or upstream availability. With valid local credentials, run:
+
+```bash
+scripts/live_mixed_model_smoke.sh
+scripts/live_claude_code_acceptance.sh
+```
+
+The live scripts start a temporary localhost gateway, make real upstream calls, and write diagnostic artifacts under `/tmp`. They consume account quota and should not run in ordinary CI.

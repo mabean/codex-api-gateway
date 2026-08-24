@@ -1,41 +1,42 @@
-# SECURITY
+# Security
 
-## Security posture
-This project is a local-first proxy for Codex/ChatGPT OAuth-backed access with:
-- an OpenAI-compatible ingress surface
-- an Anthropic-compatible ingress surface with streaming support
+Codex API Gateway is an experimental, local credential-bearing proxy. It has not been designed or audited for public, hosted, or multi-tenant deployment.
 
-Current security goals:
-- localhost-only bind by default
-- no cloud relay
-- no hidden telemetry
-- no secret logging
-- minimal outbound host set
-- reproducible builds and pinned dependencies
+## Safe use
 
-## Sensitive assets
-- OAuth access tokens
-- account identifiers
-- local auth files
-- downstream prompts/responses
+- Run it only on a trusted machine.
+- Keep the listener on `127.0.0.1`.
+- Do not expose it through a tunnel, reverse proxy, shared LAN address, or public hostname.
+- Protect `~/.codex/auth.json`, Claude credentials, OAuth tokens, and API keys as secrets.
+- Review custom upstream URLs before use; they receive credentials and request content.
+- Keep dependencies and the committed `Cargo.lock` current.
 
-## Rules
-- Never log raw bearer tokens or auth files
-- Keep prompt/response/tool-argument wire logs disabled by default; use `CODEX_PROXY_VERBOSE=1` only for local diagnostics
-- Do not expose the proxy publicly by default
-- Do not commit local auth files
-- Treat reverse tunnels/public bind as advanced and unsafe until separately hardened
-- Planning/scratch workflow files should remain local unless they become user-facing documentation
+## Sensitive data
 
-## Allowed outbound hosts (target policy)
-- `chatgpt.com`
-- auth-related OpenAI hosts only if explicitly needed by future refresh logic
+The gateway can process:
 
-## Current protocol/security notes
-- OpenAI-compatible `/v1/responses` and `/v1/chat/completions` are implemented
-- Anthropic-compatible `/v1/messages` is implemented with streaming and baseline tool-use rendering
-- error responses are structured per API family
-- usage accounting on compatibility surfaces is currently placeholder-level
+- OAuth and API credentials;
+- account identifiers;
+- prompts, responses, and conversation history;
+- tool names, arguments, and results.
 
-## Reporting
-If a change broadens token exposure, adds telemetry, introduces new outbound destinations, or turns local planning files into tracked repo artifacts, it should be treated as security-relevant and called out explicitly in review.
+Normal logs must not contain raw credentials. Detailed wire diagnostics are disabled unless `CODEX_PROXY_VERBOSE=1` is set.
+
+Verbose mode is intended only for short-lived local debugging. It may include prompts, responses, tool arguments, and upstream SSE fragments. Never attach verbose logs to a public issue without inspecting and redacting them first.
+
+## Network boundary
+
+The process listens on localhost and connects to the configured Codex/ChatGPT and Anthropic upstreams. Changing either upstream base URL changes the trust boundary: the new destination may receive authentication headers and user content.
+
+## Security-relevant changes
+
+Treat a change as security-sensitive if it:
+
+- changes listener exposure or downstream authentication;
+- adds an outbound destination;
+- changes credential loading, forwarding, or refresh behavior;
+- logs request or response bodies;
+- adds telemetry or persistent storage;
+- broadens the supported deployment model.
+
+Such changes should include an updated threat assessment and tests for secret handling and failure behavior.
