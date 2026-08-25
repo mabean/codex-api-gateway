@@ -4,6 +4,10 @@ A local gateway that lets OpenAI-compatible and Anthropic-compatible clients use
 
 > **Experimental:** the gateway handles local OAuth credentials and is intended for single-user development on `127.0.0.1`. Do not expose it to a LAN or the public internet.
 
+## Origin and evolution
+
+This project originally started from [Securiteru/codex-openai-proxy](https://github.com/Securiteru/codex-openai-proxy) and has since evolved into an independently maintained gateway with Anthropic compatibility, multi-upstream routing, Claude Code tool-use support, per-agent model routing, and a local-first security model.
+
 ## What it provides
 
 | Endpoint | Purpose |
