@@ -20,6 +20,7 @@ Public hosting, shared credentials, multi-user isolation, and untrusted local cl
 3. Gateway to the configured Codex/ChatGPT upstream.
 4. Gateway to the configured Anthropic upstream.
 5. Build process to third-party Rust dependencies.
+6. Browser origin to the localhost gateway. A page from a remote origin may be able to send requests, subject to the browser's local-network restrictions.
 
 ## Main risks and mitigations
 
@@ -30,12 +31,14 @@ Public hosting, shared credentials, multi-user isolation, and untrusted local cl
 | Malicious custom upstream captures data | Upstream URLs are explicit configuration and should be treated as trust-boundary changes |
 | Protocol drift causes silent or misleading success | Structured upstream errors, live acceptance scripts, and contract-focused tests |
 | Tool-call translation changes behavior | Tool history and streaming paths have regression and live acceptance coverage |
-| Dependency compromise | Committed lockfile, CI checks, and a minimum crate-age policy |
-| Stale local credentials are forwarded | Credential parsing validates usable material; upstream authorization failures remain visible |
+| Dependency compromise | Committed lockfile, CI checks, and a best-effort minimum crate-age check; metadata lookup failures are skipped with warnings |
+| Stale Codex credentials are forwarded | Auth parsing checks field presence, not token expiry or nonempty values; upstream authorization failures remain visible |
 
 ## Residual risks
 
 - Local processes can call the gateway because it does not provide strong downstream authentication.
+- CORS permits any origin and the gateway does not authenticate downstream callers. A remote web page may be able to call the localhost listener where browser restrictions permit it; loopback binding alone does not establish caller trust.
+- Codex credentials are loaded at startup without local expiry validation or automatic reload. Updating the auth file requires restarting the gateway; token validity is determined by the upstream.
 - Upstream private contracts may change independently of this project.
 - Verbose diagnostics can expose sensitive content.
 - Compatibility translation is intentionally incomplete and may lose unsupported fields.

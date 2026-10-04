@@ -84,7 +84,7 @@ claude -p --model claude-sonnet-5 "Reply with exactly: CLAUDE_OK"
 
 ## Models and aliases
 
-Query the live gateway catalog instead of hard-coding the full list:
+Query the gateway's advertised catalog instead of hard-coding the full list. It is a static list, not a check of upstream availability or account entitlements:
 
 ```bash
 curl http://127.0.0.1:8080/v1/models
@@ -122,6 +122,8 @@ The gateway removes this directive before forwarding the prompt.
 ## Authentication
 
 Codex credentials are read from `--auth-path`. Legacy Codex auth files and OpenClaw-style auth profile files are supported.
+
+The gateway reads Codex credentials at startup and does not validate token expiry locally. Restart it after updating the auth file; upstream authorization errors indicate credentials that are rejected.
 
 Anthropic authentication is resolved in this order:
 
@@ -180,6 +182,10 @@ Live suites consume upstream quota and require valid local Codex and Claude cred
 - Verbose diagnostics may contain prompts, responses, and tool arguments.
 
 See [SECURITY.md](SECURITY.md) before running the gateway and [THREAT_MODEL.md](THREAT_MODEL.md) before changing its trust boundary.
+
+## Development
+
+See [BUILD.md](BUILD.md) for build and verification commands, [PROJECT_MAP.md](PROJECT_MAP.md) for the repository layout, and [AGENTS.md](AGENTS.md) for coding-agent guidance.
 
 ## License
 

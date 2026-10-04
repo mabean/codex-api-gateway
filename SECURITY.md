@@ -6,6 +6,7 @@ Codex API Gateway is an experimental, local credential-bearing proxy. It has not
 
 - Run it only on a trusted machine.
 - Keep the listener on `127.0.0.1`.
+- Loopback binding does not authenticate callers. CORS permits any origin, so remote web pages may be able to call the gateway where browser local-network restrictions permit it; see [THREAT_MODEL.md](THREAT_MODEL.md).
 - Do not expose it through a tunnel, reverse proxy, shared LAN address, or public hostname.
 - Protect `~/.codex/auth.json`, Claude credentials, OAuth tokens, and API keys as secrets.
 - Review custom upstream URLs before use; they receive credentials and request content.
@@ -23,6 +24,8 @@ The gateway can process:
 Normal logs must not contain raw credentials. Detailed wire diagnostics are disabled unless `CODEX_PROXY_VERBOSE=1` is set.
 
 Verbose mode is intended only for short-lived local debugging. It may include prompts, responses, tool arguments, and upstream SSE fragments. Never attach verbose logs to a public issue without inspecting and redacting them first.
+
+Live verification scripts enable gateway verbose mode by default. See [BUILD.md](BUILD.md) for disabling it and for the acceptance suite's permission-bypass behavior.
 
 ## Network boundary
 
