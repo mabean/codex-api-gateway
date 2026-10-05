@@ -188,6 +188,7 @@ Live suites consume upstream quota and require valid local Codex and Claude cred
 
 - This is not a production or multi-tenant gateway.
 - Anthropic compatibility covers the subset needed by the supported local workflows, not the entire Anthropic API.
+- Codex-bound tools are limited to `Edit`, `Read`, `Write`, and `Bash`; other Claude Code tools, including `Agent`, are filtered out.
 - Compatibility-surface usage accounting is approximate.
 - Model availability depends on the current account and upstream entitlements.
 - Upstream private contracts can change without notice.

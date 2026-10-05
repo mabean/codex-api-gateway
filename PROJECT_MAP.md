@@ -11,6 +11,7 @@ Use this index to find documentation and implementation entrypoints. Open only t
 | Handle credentials, logs, outbound destinations, and security-sensitive changes | [SECURITY.md](SECURITY.md) |
 | Assess deployment scope, browser access, credential limitations, and other trust boundaries | [THREAT_MODEL.md](THREAT_MODEL.md) |
 | Review latest local approval, earlier live results, and remaining blockers | [2026-10-05 verification](docs/model-verification-2026-10-05.md) |
+| Review Claude Code 2.1.289 request changes and mock compatibility | [2026-10-05 protocol comparison](docs/claude-code-protocol-2026-10-05.md) |
 | Contribute changes with a coding agent | [AGENTS.md](AGENTS.md) |
 
 ## Source and tooling
