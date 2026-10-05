@@ -19,6 +19,7 @@ For code changes, run the CI baseline documented in [BUILD.md](BUILD.md):
 ```bash
 cargo fmt --check
 cargo test --all-targets
+python3 -B -m unittest discover -s scripts -p 'test_*.py'
 python3 scripts/check_crate_age.py 7
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release

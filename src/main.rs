@@ -19,8 +19,8 @@ const CLAUDE_CODE_VERSION: &str = "2.1.119";
 const CLAUDE_OAUTH_BETAS: &[&str] = &["oauth-2025-04-20"];
 const CLAUDE_CODE_CREDENTIALS_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
-const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-5";
-const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-5";
+const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-5-5";
+const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-5-5";
 const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
 const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.6-sol]`, `[gateway-model: gpt-5.6-terra]`, `[gateway-model: gpt-5.6-luna]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
@@ -38,6 +38,34 @@ const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX: u64 = 120;
 const DEFAULT_LOG_MAX_SIZE_MIB: u64 = 10;
 const DEFAULT_LOG_RETAINED_FILES: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "gpt-6.1-sol",
+        display_name: "GPT 6.1 Sol",
+        owned_by: "openai-codex",
+        created_at: "2026-09-29T00:00:00Z",
+        created: 1790640000,
+    },
+    GatewayModel {
+        id: "gpt-6-astra",
+        display_name: "GPT 6 Astra",
+        owned_by: "openai-codex",
+        created_at: "2026-09-03T00:00:00Z",
+        created: 1788393600,
+    },
+    GatewayModel {
+        id: "gpt-6-luna",
+        display_name: "GPT 6 Luna",
+        owned_by: "openai-codex",
+        created_at: "2026-09-22T00:00:00Z",
+        created: 1790035200,
+    },
+    GatewayModel {
+        id: "gpt-6-sol",
+        display_name: "GPT 6 Sol",
+        owned_by: "openai-codex",
+        created_at: "2026-09-22T00:00:00Z",
+        created: 1790035200,
+    },
     GatewayModel {
         id: "gpt-5.6",
         display_name: "GPT 5.6 (Sol alias)",
@@ -89,6 +117,27 @@ const CODEX_MODELS: &[GatewayModel] = &[
     },
 ];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "claude-fable-5-1",
+        display_name: "Claude Fable 5.1",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-09-01T00:00:00Z",
+        created: 1788220800,
+    },
+    GatewayModel {
+        id: "claude-opus-5-5",
+        display_name: "Claude Opus 5.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-09-22T00:00:00Z",
+        created: 1790035200,
+    },
+    GatewayModel {
+        id: "claude-sonnet-5-5",
+        display_name: "Claude Sonnet 5.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-09-28T00:00:00Z",
+        created: 1790553600,
+    },
     GatewayModel {
         id: "claude-fable-5",
         display_name: "Claude Fable 5",
@@ -567,6 +616,8 @@ struct ChatCompletionsRequest {
     messages: Vec<ChatMessage>,
     stream: Option<bool>,
     tools: Option<Vec<Value>>,
+    reasoning_effort: Option<String>,
+    tool_choice: Option<Value>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -603,6 +654,8 @@ struct AnthropicMessagesRequest {
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<Value>>,
+    #[serde(flatten)]
+    extra: std::collections::BTreeMap<String, Value>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -617,18 +670,11 @@ struct AnthropicMessagesResponse {
     #[serde(rename = "type")]
     response_type: String,
     role: String,
-    content: Vec<AnthropicTextBlock>,
+    content: Vec<Value>,
     model: String,
     stop_reason: Option<String>,
     stop_sequence: Option<String>,
     usage: AnthropicUsage,
-}
-
-#[derive(Serialize, Debug)]
-struct AnthropicTextBlock {
-    #[serde(rename = "type")]
-    content_type: String,
-    text: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -664,6 +710,9 @@ struct AnthropicErrorBody {
 struct ChatMessage {
     role: String,
     content: Value,
+    #[serde(default)]
+    tool_calls: Option<Vec<Value>>,
+    tool_call_id: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -687,6 +736,8 @@ struct Choice {
 struct ChatResponseMessage {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<Value>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -702,7 +753,7 @@ struct ResponsesApiRequest {
     instructions: String,
     input: Vec<ResponsesInputItem>,
     tools: Vec<Value>,
-    tool_choice: String,
+    tool_choice: Value,
     parallel_tool_calls: bool,
     reasoning: Option<Value>,
     store: bool,
@@ -1092,12 +1143,16 @@ impl ProxyServer {
             messages.push(ChatMessage {
                 role: "system".to_string(),
                 content: system,
+                tool_calls: None,
+                tool_call_id: None,
             });
         }
         for msg in anthropic_req.messages {
             messages.push(ChatMessage {
                 role: msg.role,
                 content: msg.content,
+                tool_calls: None,
+                tool_call_id: None,
             });
         }
         if verbose_tracing_enabled() {
@@ -1129,6 +1184,18 @@ impl ProxyServer {
             messages,
             stream: anthropic_req.stream,
             tools: anthropic_req.tools,
+            reasoning_effort: None,
+            tool_choice: anthropic_req.extra.get("tool_choice").and_then(|choice| {
+                match choice.get("type").and_then(Value::as_str) {
+                    Some("auto") => Some(json!("auto")),
+                    Some("none") => Some(json!("none")),
+                    Some("any") => Some(json!("required")),
+                    Some("tool") => choice
+                        .get("name")
+                        .map(|name| json!({"type":"function", "name":name})),
+                    _ => None,
+                }
+            }),
         })
     }
 
@@ -1251,9 +1318,21 @@ impl ProxyServer {
             instructions,
             input,
             tools: normalized_tools,
-            tool_choice: "auto".to_string(),
+            tool_choice: chat_req
+                .tool_choice
+                .map(|choice| {
+                    if choice.get("type").and_then(Value::as_str) == Some("function") {
+                        if let Some(name) = choice.get("function").and_then(|f| f.get("name")) {
+                            return json!({"type":"function", "name":name});
+                        }
+                    }
+                    choice
+                })
+                .unwrap_or_else(|| json!("auto")),
             parallel_tool_calls: true,
-            reasoning: None,
+            reasoning: chat_req
+                .reasoning_effort
+                .map(|effort| json!({"effort": effort})),
             store: false,
             stream: true,
             text: json!({"verbosity":"low","format":{"type":"text"}}),
@@ -1572,26 +1651,8 @@ impl ProxyServer {
         let (model, body) = self
             .upstream_sse_text_with_retry(chat_req, retry_config)
             .await?;
-        let response_content = extract_response_content(&body)?;
-        Ok(ChatCompletionsResponse {
-            id: format!("chatcmpl-{}", Uuid::new_v4()),
-            object: "chat.completion".to_string(),
-            created: chrono::Utc::now().timestamp(),
-            model,
-            choices: vec![Choice {
-                index: 0,
-                message: ChatResponseMessage {
-                    role: "assistant".to_string(),
-                    content: response_content,
-                },
-                finish_reason: Some("stop".to_string()),
-            }],
-            usage: Some(Usage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-            }),
-        })
+        let events = parse_codex_sse_to_events(&body)?;
+        render_chat_json(&events, &model)
     }
 
     async fn proxy_openai_responses_request(
@@ -1788,6 +1849,55 @@ fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, Proxy
     }
 }
 
+fn render_chat_json(
+    events: &[CanonicalStreamEvent],
+    model: &str,
+) -> Result<ChatCompletionsResponse, ProxyError> {
+    let response = render_openai_responses_json(events, model);
+    let calls: Vec<Value> = response["output"].as_array().unwrap().iter()
+        .filter(|item| item["type"] == "function_call")
+        .map(|item| json!({"id":item["call_id"], "type":"function", "function":{"name":item["name"], "arguments":item["arguments"]}})).collect();
+    let finish_reason = if calls.is_empty() {
+        "stop"
+    } else {
+        "tool_calls"
+    };
+    if calls.is_empty()
+        && response["output_text"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty()
+    {
+        return Err(ProxyError::UpstreamProtocol {
+            message: "upstream returned success but no parsable response content or tool calls"
+                .to_string(),
+        });
+    }
+    Ok(ChatCompletionsResponse {
+        id: format!("chatcmpl-{}", Uuid::new_v4()),
+        object: "chat.completion".to_string(),
+        created: chrono::Utc::now().timestamp(),
+        model: model.to_string(),
+        choices: vec![Choice {
+            index: 0,
+            message: ChatResponseMessage {
+                role: "assistant".to_string(),
+                content: response["output_text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                tool_calls: if calls.is_empty() { None } else { Some(calls) },
+            },
+            finish_reason: Some(finish_reason.to_string()),
+        }],
+        usage: Some(Usage {
+            prompt_tokens: response["usage"]["input_tokens"].as_i64().unwrap_or(0) as i32,
+            completion_tokens: response["usage"]["output_tokens"].as_i64().unwrap_or(0) as i32,
+            total_tokens: response["usage"]["total_tokens"].as_i64().unwrap_or(0) as i32,
+        }),
+    })
+}
+
 fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) -> Value {
     let mut text = String::new();
     let mut output = Vec::new();
@@ -1802,7 +1912,7 @@ fn render_openai_responses_json(events: &[CanonicalStreamEvent], model: &str) ->
                 arguments,
             } => output.push(json!({
                 "type": "function_call",
-                "id": call_id,
+                "id": format!("fc_{}", Uuid::new_v4().simple()),
                 "call_id": call_id,
                 "name": name,
                 "arguments": arguments,
@@ -2494,6 +2604,32 @@ fn normalize_chat_message(msg: &ChatMessage) -> Result<Vec<NormalizedMessage>, P
             }
         }
         "assistant" => {
+            if let Some(calls) = &msg.tool_calls {
+                let mut out = Vec::new();
+                for call in calls {
+                    let id = call.get("id").and_then(Value::as_str);
+                    let function = call.get("function");
+                    let name = function.and_then(|f| f.get("name")).and_then(Value::as_str);
+                    let arguments = function
+                        .and_then(|f| f.get("arguments"))
+                        .and_then(Value::as_str);
+                    let (Some(id), Some(name), Some(arguments)) = (id, name, arguments) else {
+                        return Err(ProxyError::Validation {
+                            message: "tool_calls require id, function.name and function.arguments"
+                                .to_string(),
+                            field: Some("messages[].tool_calls".to_string()),
+                        });
+                    };
+                    out.push(NormalizedMessage::AssistantToolCall {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        arguments: arguments.to_string(),
+                    });
+                }
+                if !out.is_empty() {
+                    return Ok(out);
+                }
+            }
             if let Value::Array(arr) = &msg.content {
                 let mut out = Vec::new();
                 for item in arr {
@@ -2553,8 +2689,14 @@ fn normalize_chat_message(msg: &ChatMessage) -> Result<Vec<NormalizedMessage>, P
             }
         }
         "tool" => Ok(vec![NormalizedMessage::ToolResult {
-            tool_use_id: extract_tool_call_id(&msg.content)
-                .unwrap_or_else(|| Uuid::new_v4().to_string()),
+            tool_use_id: msg
+                .tool_call_id
+                .clone()
+                .or_else(|| extract_tool_call_id(&msg.content))
+                .ok_or_else(|| ProxyError::Validation {
+                    message: "tool messages require tool_call_id".to_string(),
+                    field: Some("messages[].tool_call_id".to_string()),
+                })?,
             content: extract_tool_output(&msg.content)
                 .unwrap_or_else(|| flatten_message_content(&msg.content).unwrap_or_default()),
         }]),
@@ -2722,6 +2864,7 @@ fn classify_upstream_error(status: StatusCode, message: String) -> ProxyError {
     }
 }
 
+#[cfg(test)]
 fn extract_response_content(response_text: &str) -> Result<String, ProxyError> {
     let mut response_content = String::new();
     let mut final_item_content = String::new();
@@ -2776,26 +2919,36 @@ fn convert_chat_to_anthropic(
     source_model: &str,
     chat: ChatCompletionsResponse,
 ) -> AnthropicMessagesResponse {
-    let text = chat
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content)
-        .unwrap_or_default();
+    let mut content = Vec::new();
+    let mut stop_reason = "end_turn";
+    if let Some(choice) = chat.choices.into_iter().next() {
+        if !choice.message.content.is_empty() {
+            content.push(json!({"type":"text", "text":choice.message.content}));
+        }
+        if let Some(calls) = choice.message.tool_calls {
+            stop_reason = "tool_use";
+            for call in calls {
+                let arguments = call["function"]["arguments"].as_str().unwrap_or("{}");
+                content.push(json!({"type":"tool_use", "id":call["id"], "name":call["function"]["name"], "input":serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}))}));
+            }
+        }
+    }
+    let usage = chat.usage.unwrap_or(Usage {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+    });
     AnthropicMessagesResponse {
         id: format!("msg_{}", Uuid::new_v4().simple()),
         response_type: "message".to_string(),
         role: "assistant".to_string(),
-        content: vec![AnthropicTextBlock {
-            content_type: "text".to_string(),
-            text,
-        }],
+        content,
         model: source_model.to_string(),
-        stop_reason: Some("end_turn".to_string()),
+        stop_reason: Some(stop_reason.to_string()),
         stop_sequence: None,
         usage: AnthropicUsage {
-            input_tokens: 0,
-            output_tokens: 0,
+            input_tokens: usage.prompt_tokens as u32,
+            output_tokens: usage.completion_tokens as u32,
         },
     }
 }

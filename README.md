@@ -79,7 +79,7 @@ You can now use either upstream through the same client:
 
 ```bash
 claude -p --model gpt-5.6-sol "Reply with exactly: CODEX_OK"
-claude -p --model claude-sonnet-5 "Reply with exactly: CLAUDE_OK"
+claude -p --model claude-sonnet-5-5 "Reply with exactly: CLAUDE_OK"
 ```
 
 ## Models and aliases
@@ -92,16 +92,28 @@ curl http://127.0.0.1:8080/v1/models
 
 The main model families currently include:
 
+- GPT-6: `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna`, and `gpt-6-sol`.
 - GPT-5.6: `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
 - `gpt-5.6`, normalized by the gateway to `gpt-5.6-sol`.
-- Claude 5: `claude-fable-5`, `claude-opus-5`, and `claude-sonnet-5`.
+- Latest Claude: `claude-fable-5-1`, `claude-opus-5-5`, and `claude-sonnet-5-5`.
+- Earlier Claude 5: `claude-fable-5`, `claude-opus-5`, and `claude-sonnet-5`.
 - Older GPT and Claude catalog entries returned by `/v1/models`.
+
+`claude-mythos-5-1` was officially released on September 1, 2026, but is excluded from the general supported catalog because access is invitation-only through Project Glasswing. See the [official Mythos 5.1 availability documentation](https://platform.claude.com/docs/en/models/mythos-5-1/overview) (checked 2026-10-05).
+
+The gateway does not define `gpt-6` or `gpt-6.1` aliases. The new catalog entries use documented release dates from the [OpenAI changelog](https://developers.openai.com/api/docs/changelog) and [Anthropic release notes](https://platform.claude.com/docs/en/release-notes/overview), represented at midnight UTC; these are not knowledge cutoff dates.
+
+GPT ingress on all three endpoints uses the upstream Responses protocol, including tools. `/v1/chat/completions` accepts standard assistant `tool_calls`, tool messages with `tool_call_id`, and `reasoning_effort`; JSON and SSE responses preserve tool call IDs. Chat SSE terminates tool calls with `finish_reason: "tool_calls"`. Text present only in a final upstream message item is preserved without duplicating streamed deltas. The supported tool names remain `Edit`, `Read`, `Write`, and `Bash`.
+
+For GPT-6 Astra and GPT-6.1 Sol, use `low` or higher reasoning effort; `none` and `minimal` are unsupported. GPT-6 Sol and GPT-6 Luna accept `none`. These upstream restrictions come from the [official GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model); catalog inclusion does not prove account access.
+
+Anthropic requests preserve top-level fields such as `thinking`, `tool_choice`, and `output_config`. For the latest three Claude models, use `tool_choice: {"type":"auto"}` or `{"type":"none"}`: forced `any`/`tool` choices are rejected upstream. Fable 5.1 and Opus 5.5 require adaptive thinking; Sonnet 5.5 also accepts `between_tools` at `high` effort or below, while `disabled` and manual `enabled` thinking are rejected. See [Anthropic thinking documentation](https://platform.claude.com/docs/en/build-with-claude/thinking). The gateway forwards these controls and upstream errors rather than silently adjusting them.
 
 Claude aliases default to:
 
 ```text
-sonnet -> claude-sonnet-5
-opus   -> claude-opus-5
+sonnet -> claude-sonnet-5-5
+opus   -> claude-opus-5-5
 haiku  -> claude-haiku-4-5-20251001
 ```
 

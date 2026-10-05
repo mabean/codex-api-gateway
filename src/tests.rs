@@ -86,8 +86,8 @@ fn normalizes_anthropic_model_aliases_to_current_versions() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
 
-    assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-5");
-    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-5");
+    assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-5-5");
+    assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-5-5");
     assert_eq!(
         normalize_anthropic_model_id("haiku"),
         "claude-haiku-4-5-20251001"
@@ -125,6 +125,7 @@ fn gateway_model_directive_overrides_agent_alias_per_request() {
         max_tokens: Some(64),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let target = apply_gateway_model_directive(&mut req).unwrap();
@@ -158,6 +159,7 @@ fn gateway_model_directive_ignores_non_ascii_text_without_panicking() {
         max_tokens: Some(64),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     assert!(apply_gateway_model_directive(&mut req).is_none());
@@ -255,6 +257,7 @@ fn gateway_model_directive_can_target_claude_versions() {
         max_tokens: Some(64),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let target = apply_gateway_model_directive(&mut req).unwrap();
@@ -293,6 +296,7 @@ fn injects_gateway_agent_instruction_when_agent_tool_is_present() {
                 }
             }
         })]),
+        extra: Default::default(),
     };
 
     inject_gateway_agent_instruction(&mut req);
@@ -317,7 +321,7 @@ fn rewrites_anthropic_request_model_aliases_before_upstream() {
     let normalized = normalize_anthropic_request_model(body).unwrap();
     let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
 
-    assert_eq!(payload["model"], serde_json::json!("claude-sonnet-5"));
+    assert_eq!(payload["model"], serde_json::json!("claude-sonnet-5-5"));
 }
 
 #[test]
@@ -339,7 +343,9 @@ fn models_endpoint_lists_codex_and_all_known_anthropic_versions() {
     assert!(ids.contains(&"gpt-5.4-mini"));
     assert!(ids.contains(&"claude-fable-5"));
     assert!(ids.contains(&"claude-opus-5"));
+    assert!(ids.contains(&"claude-opus-5-5"));
     assert!(ids.contains(&"claude-sonnet-5"));
+    assert!(ids.contains(&"claude-sonnet-5-5"));
     assert!(ids.contains(&"claude-opus-4-8"));
     assert!(ids.contains(&"claude-opus-4-7"));
     assert!(ids.contains(&"claude-sonnet-4-6"));
@@ -569,6 +575,7 @@ fn converts_anthropic_messages_to_internal_chat_shape() {
         max_tokens: Some(128),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let converted = proxy.convert_anthropic_to_chat(req).unwrap();
@@ -609,6 +616,7 @@ fn converts_anthropic_messages_without_system_prompt() {
         max_tokens: Some(64),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let converted = proxy.convert_anthropic_to_chat(req).unwrap();
@@ -642,6 +650,7 @@ fn anthropic_requires_max_tokens() {
         max_tokens: None,
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let err = proxy.convert_anthropic_to_chat(req).unwrap_err();
@@ -678,6 +687,7 @@ fn anthropic_rejects_invalid_role() {
         max_tokens: Some(16),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let err = proxy.convert_anthropic_to_chat(req).unwrap_err();
@@ -724,6 +734,7 @@ fn anthropic_hoists_claude_code_system_messages() {
         max_tokens: Some(64),
         stream: Some(false),
         tools: None,
+        extra: Default::default(),
     };
 
     let chat = proxy.convert_anthropic_to_chat(req).unwrap();
@@ -762,6 +773,7 @@ fn anthropic_ingress_preparation_routes_nested_system_directive_to_codex() {
             "name": "Agent",
             "input_schema": {"type": "object", "properties": {}}
         })]),
+        extra: Default::default(),
     };
 
     let (directive, route) = prepare_anthropic_ingress(&mut req);
@@ -814,6 +826,7 @@ fn anthropic_ingress_preparation_serializes_nested_system_for_passthrough() {
             "name": "Agent",
             "input_schema": {"type": "object", "properties": {}}
         })]),
+        extra: Default::default(),
     };
 
     let (directive, route) = prepare_anthropic_ingress(&mut req);
@@ -824,7 +837,7 @@ fn anthropic_ingress_preparation_serializes_nested_system_for_passthrough() {
     let encoded = serde_json::to_vec(&req).unwrap();
     let normalized = normalize_anthropic_request_model(&encoded).unwrap();
     let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
-    assert_eq!(payload["model"], serde_json::json!("claude-opus-5"));
+    assert_eq!(payload["model"], serde_json::json!("claude-opus-5-5"));
     assert_eq!(payload["messages"].as_array().unwrap().len(), 2);
     let system = flatten_message_content(&payload["system"]).unwrap();
     assert!(system.contains("nested passthrough system"));
@@ -857,6 +870,8 @@ fn chat_request_requires_messages() {
         messages: vec![],
         stream: Some(false),
         tools: None,
+        reasoning_effort: None,
+        tool_choice: None,
     };
 
     let err = proxy.convert_chat_to_responses(req).unwrap_err();
@@ -943,9 +958,14 @@ fn convert_chat_to_responses_supports_array_message_content() {
                 {"type": "text", "text": "first"},
                 {"type": "text", "text": "second"}
             ]),
+
+            tool_calls: None,
+            tool_call_id: None,
         }],
         stream: Some(false),
         tools: None,
+        reasoning_effort: None,
+        tool_choice: None,
     };
 
     let converted = proxy.convert_chat_to_responses(req).unwrap();
@@ -973,14 +993,20 @@ fn convert_chat_to_responses_preserves_assistant_history() {
             ChatMessage {
                 role: "user".to_string(),
                 content: serde_json::json!("hello"),
+                tool_calls: None,
+                tool_call_id: None,
             },
             ChatMessage {
                 role: "assistant".to_string(),
                 content: serde_json::json!("hi there"),
+                tool_calls: None,
+                tool_call_id: None,
             },
         ],
         stream: Some(false),
         tools: None,
+        reasoning_effort: None,
+        tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
     let json = serde_json::to_value(&converted).unwrap();
@@ -1052,9 +1078,14 @@ fn anthropic_tool_result_blocks_become_function_call_output_items() {
             content: serde_json::json!([
                 {"type":"tool_result","tool_use_id":"toolu_123","content":"edited file"}
             ]),
+
+            tool_calls: None,
+            tool_call_id: None,
         }],
         stream: Some(false),
         tools: None,
+        reasoning_effort: None,
+        tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
     let json = serde_json::to_value(&converted).unwrap();
@@ -1223,9 +1254,14 @@ fn anthropic_assistant_tool_use_blocks_become_codex_function_call_items() {
             content: serde_json::json!([
                 {"type":"tool_use","id":"toolu_123","name":"Edit","input":{"file_path":"note.txt","old_string":"","new_string":"TOOL_USE_OK"}}
             ]),
+
+            tool_calls: None,
+            tool_call_id: None,
         }],
         stream: Some(false),
         tools: None,
+        reasoning_effort: None,
+        tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
     let json = serde_json::to_value(&converted).unwrap();
@@ -1439,4 +1475,419 @@ fn rotating_log_can_truncate_without_retaining_archives() {
 
     assert_eq!(fs::read_to_string(&path).unwrap(), "two\n");
     assert!(!directory.path().join("gateway.log.1").exists());
+}
+
+#[test]
+fn new_model_catalog_has_exact_ids_and_sourced_release_dates() {
+    let catalog = gateway_models_response();
+    let entries = catalog["data"].as_array().unwrap();
+    for id in [
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "claude-fable-5-1",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+    ] {
+        assert_eq!(entries.iter().filter(|entry| entry["id"] == id).count(), 1);
+        if id.starts_with("gpt-6") {
+            let entry = entries.iter().find(|entry| entry["id"] == id).unwrap();
+            let expected = match id {
+                "gpt-6.1-sol" => "2026-09-29T00:00:00Z",
+                "gpt-6-astra" => "2026-09-03T00:00:00Z",
+                _ => "2026-09-22T00:00:00Z",
+            };
+            assert_eq!(entry["created_at"], expected);
+            assert_eq!(
+                entry["created"].as_i64().unwrap(),
+                chrono::DateTime::parse_from_rfc3339(expected)
+                    .unwrap()
+                    .timestamp()
+            );
+        }
+    }
+    assert!(!entries
+        .iter()
+        .any(|entry| entry["id"] == "gpt-6" || entry["id"] == "gpt-6.1"));
+}
+
+#[test]
+fn new_models_route_without_rewriting_explicit_ids_and_alias_overrides_work() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+    for id in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"] {
+        assert_eq!(normalize_codex_model_id(&format!("openai/{id}")), id);
+        assert_eq!(route_anthropic_model(id), AnthropicModelRoute::Codex);
+    }
+    for id in ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"] {
+        assert_eq!(normalize_anthropic_model_id(&format!("anthropic/{id}")), id);
+        assert_eq!(route_anthropic_model(id), AnthropicModelRoute::Anthropic);
+    }
+    std::env::set_var("CODEX_GATEWAY_ALIAS_SONNET", "openai/gpt-6.1-sol");
+    assert_eq!(normalize_codex_model_id("sonnet"), "gpt-6.1-sol");
+    assert_eq!(route_anthropic_model("sonnet"), AnthropicModelRoute::Codex);
+    std::env::set_var("CODEX_GATEWAY_ALIAS_OPUS", "claude-fable-5-1");
+    assert_eq!(normalize_anthropic_model_id("opus"), "claude-fable-5-1");
+    clear_alias_env();
+}
+
+#[test]
+fn anthropic_passthrough_preserves_thinking_tool_choice_and_output_config() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+    let mut request: AnthropicMessagesRequest = serde_json::from_value(serde_json::json!({
+        "model":"sonnet", "messages":[{"role":"user","content":"hello"}], "max_tokens":512,
+        "thinking":{"type":"between_tools"}, "tool_choice":{"type":"none"},
+        "output_config":{"effort":"low"}, "temperature":1, "metadata":{"user_id":"synthetic-user"}
+    }))
+    .unwrap();
+    let (_, route) = prepare_anthropic_ingress(&mut request);
+    assert_eq!(route, AnthropicModelRoute::Anthropic);
+    let serialized = serde_json::to_vec(&request).unwrap();
+    let normalized = normalize_anthropic_request_model(&serialized).unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+    assert_eq!(
+        result["thinking"],
+        serde_json::json!({"type":"between_tools"})
+    );
+    assert_eq!(result["tool_choice"], serde_json::json!({"type":"none"}));
+    assert_eq!(result["output_config"], serde_json::json!({"effort":"low"}));
+    assert_eq!(result["metadata"]["user_id"], "synthetic-user");
+}
+
+#[test]
+fn canonical_json_renderers_preserve_tool_ids_arguments_and_usage() {
+    use crate::streaming::CanonicalStreamEvent;
+    let events = vec![
+        CanonicalStreamEvent::ToolCallDone {
+            call_id: "call_synthetic".into(),
+            name: "echo".into(),
+            arguments: r#"{"value":"OK"}"#.into(),
+        },
+        CanonicalStreamEvent::Usage {
+            input_tokens: 12,
+            output_tokens: 7,
+        },
+        CanonicalStreamEvent::Completed {
+            finish_reason: Some("tool_calls".into()),
+        },
+    ];
+    let chat = crate::render_chat_json(&events, "gpt-6.1-sol").unwrap();
+    assert_eq!(chat.choices[0].finish_reason.as_deref(), Some("tool_calls"));
+    let calls = chat.choices[0].message.tool_calls.as_ref().unwrap();
+    assert_eq!(calls[0]["id"], "call_synthetic");
+    assert_eq!(calls[0]["function"]["arguments"], r#"{"value":"OK"}"#);
+    let message = crate::convert_chat_to_anthropic("gpt-6.1-sol", chat);
+    assert_eq!(message.stop_reason.as_deref(), Some("tool_use"));
+    assert_eq!(message.content[0]["id"], "call_synthetic");
+    assert_eq!(message.content[0]["input"]["value"], "OK");
+    assert_eq!(message.usage.input_tokens, 12);
+}
+
+#[test]
+fn standard_chat_tool_history_binds_result_to_the_original_call_id() {
+    let request: ChatCompletionsRequest = serde_json::from_value(serde_json::json!({
+        "model":"gpt-6-astra", "reasoning_effort":"low", "tool_choice":"auto", "messages":[
+            {"role":"user", "content":"Call echo"},
+            {"role":"assistant", "content":null, "tool_calls":[{"id":"call_matching", "type":"function", "function":{"name":"echo", "arguments":"{}"}}]},
+            {"role":"tool", "tool_call_id":"call_matching", "content":"TOOL_OK"}
+        ]
+    })).unwrap();
+    let assistant = crate::normalize_chat_message(&request.messages[1]).unwrap();
+    assert!(
+        matches!(&assistant[0], crate::NormalizedMessage::AssistantToolCall { id, .. } if id == "call_matching")
+    );
+    let result = crate::normalize_chat_message(&request.messages[2]).unwrap();
+    assert!(
+        matches!(&result[0], crate::NormalizedMessage::ToolResult { tool_use_id, content } if tool_use_id == "call_matching" && content == "TOOL_OK")
+    );
+    let missing_id: ChatMessage =
+        serde_json::from_value(serde_json::json!({"role":"tool", "content":"TOOL_OK"})).unwrap();
+    assert!(crate::normalize_chat_message(&missing_id).is_err());
+}
+
+#[test]
+fn canonical_chat_json_rejects_empty_success_instead_of_fabricating_content() {
+    use crate::streaming::CanonicalStreamEvent;
+    assert!(crate::render_chat_json(
+        &[CanonicalStreamEvent::Completed {
+            finish_reason: Some("stop".into())
+        }],
+        "gpt-6-sol"
+    )
+    .is_err());
+}
+
+#[test]
+fn codex_item_ids_are_mapped_to_call_ids_without_duplicating_streamed_arguments() {
+    let sse = concat!(
+        "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_first\",\"call_id\":\"call_first\",\"name\":\"Read\",\"arguments\":\"\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_first\",\"delta\":\"{\\\"file_path\\\":\\\"probe.txt\\\"}\"}\n\n",
+        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_first\",\"call_id\":\"call_first\",\"name\":\"Read\",\"arguments\":\"{\\\"file_path\\\":\\\"probe.txt\\\"}\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n"
+    );
+    let events = crate::streaming::parse_codex_sse_to_events(sse).unwrap();
+    let deltas: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            crate::streaming::CanonicalStreamEvent::ToolCallDelta {
+                call_id,
+                arguments_delta,
+            } => Some((call_id, arguments_delta)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(deltas.len(), 1);
+    assert_eq!(deltas[0].0, "call_first");
+    assert_eq!(deltas[0].1, r#"{"file_path":"probe.txt"}"#);
+    let rendered = crate::streaming::render_openai_sse(&events, "gpt-6-sol");
+    assert!(!rendered.contains("fc_first"));
+    let json = render_openai_responses_json(&events, "gpt-6-sol");
+    assert!(json["output"][0]["id"].as_str().unwrap().starts_with("fc_"));
+    assert_eq!(json["output"][0]["call_id"], "call_first");
+}
+
+#[test]
+fn chat_stream_parallel_tool_calls_have_distinct_stable_indices() {
+    use crate::streaming::CanonicalStreamEvent;
+    let events = vec![
+        CanonicalStreamEvent::ToolCallStart {
+            call_id: "call_a".into(),
+            name: "Read".into(),
+        },
+        CanonicalStreamEvent::ToolCallStart {
+            call_id: "call_b".into(),
+            name: "Read".into(),
+        },
+        CanonicalStreamEvent::ToolCallDelta {
+            call_id: "call_b".into(),
+            arguments_delta: "{}".into(),
+        },
+        CanonicalStreamEvent::ToolCallDelta {
+            call_id: "call_a".into(),
+            arguments_delta: "{}".into(),
+        },
+    ];
+    let rendered = crate::streaming::render_openai_sse(&events, "gpt-6-sol");
+    let calls: Vec<serde_json::Value> = rendered
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let indices: Vec<_> = calls
+        .iter()
+        .map(|chunk| {
+            chunk["choices"][0]["delta"]["tool_calls"][0]["index"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(indices, vec![0, 1, 1, 0]);
+}
+
+#[test]
+fn canonical_production_renderers_recover_final_item_text_without_duplication() {
+    let final_item = concat!(
+        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Fallback\"}]}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{}}\n\n"
+    );
+    for prefix in [
+        "",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Fallback\"}\n\n",
+        "data: {\"type\":\"response.output_text.done\",\"text\":\"Fallback\"}\n\n",
+    ] {
+        let events =
+            crate::streaming::parse_codex_sse_to_events(&format!("{prefix}{final_item}")).unwrap();
+        let chat = crate::render_chat_json(&events, "gpt-6-sol").unwrap();
+        assert_eq!(chat.choices[0].message.content, "Fallback");
+        let responses = render_openai_responses_json(&events, "gpt-6-sol");
+        assert_eq!(responses["output_text"], "Fallback");
+        let anthropic = crate::convert_chat_to_anthropic("gpt-6-sol", chat);
+        assert_eq!(anthropic.content[0]["text"], "Fallback");
+        let stream = crate::streaming::render_openai_sse(&events, "gpt-6-sol");
+        assert_eq!(stream.matches("Fallback").count(), 1);
+    }
+}
+
+#[test]
+fn chat_sse_maps_tool_finish_reason_while_anthropic_keeps_tool_use() {
+    for (item, expected) in [
+        (
+            serde_json::json!({"type":"function_call", "call_id":"call_read", "name":"Read", "arguments":"{}"}),
+            "tool_calls",
+        ),
+        (
+            serde_json::json!({"type":"message", "content":[{"type":"output_text", "text":"Done"}]}),
+            "stop",
+        ),
+    ] {
+        let sse = format!(
+            "data: {}\n\ndata: {{\"type\":\"response.completed\",\"response\":{{}}}}\n\n",
+            serde_json::json!({"type":"response.output_item.done", "item":item})
+        );
+        let events = crate::streaming::parse_codex_sse_to_events(&sse).unwrap();
+        let rendered = crate::streaming::render_openai_sse(&events, "gpt-6-sol");
+        let chunks: Vec<serde_json::Value> = rendered
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|data| serde_json::from_str(data).ok())
+            .collect();
+        assert_eq!(
+            chunks.last().unwrap()["choices"][0]["finish_reason"],
+            expected
+        );
+        assert!(rendered.ends_with("data: [DONE]\n\n"));
+        assert_eq!(
+            crate::render_chat_json(&events, "gpt-6-sol")
+                .unwrap()
+                .choices[0]
+                .finish_reason
+                .as_deref(),
+            Some(expected)
+        );
+        if expected == "tool_calls" {
+            assert!(crate::streaming::render_anthropic_sse(&events, "gpt-6-sol")
+                .contains("\"stop_reason\":\"tool_use\""));
+        }
+    }
+}
+
+fn assert_canonical_text_rendering(mut upstream: Vec<serde_json::Value>, expected: &str) {
+    upstream.push(serde_json::json!({"type":"response.completed", "response":{}}));
+    let sse: String = upstream
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect();
+    let events = crate::streaming::parse_codex_sse_to_events(&sse).unwrap();
+    let chat = crate::render_chat_json(&events, "gpt-6.1-sol").unwrap();
+    assert_eq!(chat.choices[0].message.content, expected);
+    assert_eq!(
+        render_openai_responses_json(&events, "gpt-6.1-sol")["output_text"],
+        expected
+    );
+    let anthropic = crate::convert_chat_to_anthropic("gpt-6.1-sol", chat);
+    assert_eq!(anthropic.content[0]["text"], expected);
+    let chat_sse = crate::streaming::render_openai_sse(&events, "gpt-6.1-sol");
+    let anthropic_sse = crate::streaming::render_anthropic_sse(&events, "gpt-6.1-sol");
+    for (rendered, path) in [
+        (chat_sse, "/choices/0/delta/content"),
+        (anthropic_sse, "/delta/text"),
+    ] {
+        let text: String = rendered
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+            .filter_map(|chunk| {
+                chunk
+                    .pointer(path)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(text, expected);
+    }
+}
+
+#[test]
+fn canonical_text_keeps_multiple_final_items_with_or_without_identifiers() {
+    for identity in ["none", "item_id", "output_index", "both"] {
+        let upstream = ["First", "Second"]
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                let mut event = serde_json::json!({"type":"response.output_item.done", "item":{
+                "type":"message", "content":[{"type":"output_text", "text":text}]}});
+                if identity == "item_id" || identity == "both" {
+                    event["item"]["id"] = serde_json::json!(format!("msg_{index}"));
+                }
+                if identity == "output_index" || identity == "both" {
+                    event["output_index"] = serde_json::json!(index);
+                }
+                event
+            })
+            .collect();
+        assert_canonical_text_rendering(upstream, "FirstSecond");
+    }
+}
+
+#[test]
+fn canonical_text_mixes_streamed_and_final_only_items_across_identity_fields() {
+    assert_canonical_text_rendering(
+        vec![
+            serde_json::json!({"type":"response.output_item.added", "output_index":5, "item":{"type":"message", "id":"msg_first", "content":[]}}),
+            serde_json::json!({"type":"response.output_text.delta", "output_index":5, "content_index":0, "delta":"First"}),
+            serde_json::json!({"type":"response.output_text.done", "item_id":"msg_first", "content_index":0, "text":"First"}),
+            serde_json::json!({"type":"response.output_item.done", "item":{"type":"message", "id":"msg_first", "content":[{"type":"output_text", "text":"First"}]}}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":6, "item":{"type":"message", "id":"msg_second", "content":[{"type":"output_text", "text":"Second"}]}}),
+        ],
+        "FirstSecond",
+    );
+    // Reduced upstream traces may omit output_item.added and alternate between
+    // item_id and output_index before their final item joins the identities.
+    assert_canonical_text_rendering(
+        vec![
+            serde_json::json!({"type":"response.output_text.delta", "item_id":"msg_first", "content_index":0, "delta":"First"}),
+            serde_json::json!({"type":"response.output_text.done", "output_index":3, "content_index":0, "text":"First"}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":3, "item":{"type":"message", "id":"msg_first", "content":[{"type":"output_text", "text":"First"}]}}),
+            serde_json::json!({"type":"response.output_text.delta", "output_index":4, "content_index":0, "delta":"Sec"}),
+            serde_json::json!({"type":"response.output_text.done", "item_id":"msg_second", "content_index":0, "text":"Second"}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":4, "item":{"type":"message", "id":"msg_second", "content":[{"type":"output_text", "text":"Second"}]}}),
+        ],
+        "FirstSecond",
+    );
+}
+
+#[test]
+fn canonical_text_tracks_content_parts_including_identical_text_and_nontext_parts() {
+    assert_canonical_text_rendering(
+        vec![
+            serde_json::json!({"type":"response.output_item.added", "output_index":0, "item":{"type":"message", "id":"msg_parts", "content":[]}}),
+            serde_json::json!({"type":"response.output_text.delta", "item_id":"msg_parts", "content_index":1, "delta":"Echo"}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":0, "item":{"type":"message", "id":"msg_parts", "content":[{"type":"refusal", "refusal":""}, {"type":"output_text", "text":"Echo"}, {"type":"output_text", "text":"Echo"}]}}),
+        ],
+        "EchoEcho",
+    );
+}
+
+#[test]
+fn canonical_text_done_and_final_items_do_not_duplicate_per_part_or_per_item() {
+    assert_canonical_text_rendering(
+        vec![
+            serde_json::json!({"type":"response.output_item.added", "output_index":0, "item":{"type":"message", "id":"msg_parts", "content":[]}}),
+            serde_json::json!({"type":"response.output_text.done", "output_index":0, "content_index":0, "text":"First"}),
+            serde_json::json!({"type":"response.output_text.done", "item_id":"msg_parts", "content_index":1, "text":"Second"}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":0, "item":{"type":"message", "id":"msg_parts", "content":[{"type":"output_text", "text":"First"}, {"type":"output_text", "text":"Second"}]}}),
+            // Repeated terminal item with the same identity remains idempotent.
+            serde_json::json!({"type":"response.output_item.done", "item":{"type":"message", "id":"msg_parts", "content":[{"type":"output_text", "text":"First"}, {"type":"output_text", "text":"Second"}]}}),
+        ],
+        "FirstSecond",
+    );
+}
+
+#[test]
+fn canonical_text_final_events_append_missing_suffix_of_partial_deltas() {
+    assert_canonical_text_rendering(
+        vec![
+            serde_json::json!({"type":"response.output_item.added", "output_index":0, "item":{"type":"message", "id":"msg_first", "content":[]}}),
+            serde_json::json!({"type":"response.output_text.delta", "item_id":"msg_first", "content_index":0, "delta":"Пр"}),
+            serde_json::json!({"type":"response.output_text.done", "output_index":0, "content_index":0, "text":"Привет"}),
+            serde_json::json!({"type":"response.output_item.done", "item":{"type":"message", "id":"msg_first", "content":[{"type":"output_text", "text":"Привет"}]}}),
+            serde_json::json!({"type":"response.output_text.delta", "output_index":1, "item_id":"msg_second", "content_index":0, "delta":"Sec"}),
+            serde_json::json!({"type":"response.output_item.done", "output_index":1, "item":{"type":"message", "id":"msg_second", "content":[{"type":"output_text", "text":"Second"}]}}),
+        ],
+        "ПриветSecond",
+    );
+}
+
+#[test]
+fn canonical_text_rejects_contradictory_final_text_instead_of_losing_streamed_content() {
+    let sse = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_a\",\"content_index\":0,\"delta\":\"First\"}\n\n",
+        "data: {\"type\":\"response.output_text.done\",\"item_id\":\"msg_a\",\"content_index\":0,\"text\":\"Different\"}\n\n"
+    );
+    assert!(matches!(
+        crate::streaming::parse_codex_sse_to_events(sse),
+        Err(ProxyError::UpstreamProtocol { .. })
+    ));
 }

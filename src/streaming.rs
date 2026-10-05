@@ -35,14 +35,100 @@ pub enum CanonicalStreamEvent {
     },
 }
 
+// Text identity is local to an output item and content part. The maps join
+// item_id-only events to output_index-only events using their shared item events.
+#[derive(Default)]
+struct CodexTextState {
+    emitted: std::collections::HashMap<(usize, u64), String>,
+    item_ids: std::collections::HashMap<String, usize>,
+    output_indices: std::collections::HashMap<u64, usize>,
+    current_item: usize,
+    next_item: usize,
+}
+
+impl CodexTextState {
+    fn fresh_item(&mut self) -> usize {
+        self.next_item += 1;
+        self.next_item
+    }
+
+    fn item(&mut self, event: &Value, item: Option<&Value>) -> usize {
+        let id = event
+            .get("item_id")
+            .and_then(Value::as_str)
+            .or_else(|| item.and_then(|item| item.get("id")).and_then(Value::as_str));
+        let index = event.get("output_index").and_then(Value::as_u64);
+        let known = id
+            .and_then(|id| self.item_ids.get(id))
+            .copied()
+            .or_else(|| {
+                index
+                    .and_then(|index| self.output_indices.get(&index))
+                    .copied()
+            });
+        let key = known.unwrap_or_else(|| {
+            // A newly supplied identity of the other kind can name the current
+            // item even when an added event was omitted. A different identity
+            // of the same kind starts a distinct item.
+            let different_item = (id.is_some()
+                && self.item_ids.values().any(|key| *key == self.current_item))
+                || (index.is_some()
+                    && self
+                        .output_indices
+                        .values()
+                        .any(|key| *key == self.current_item));
+            if different_item {
+                self.fresh_item()
+            } else {
+                self.current_item
+            }
+        });
+        if let Some(id) = id {
+            self.item_ids.insert(id.to_string(), key);
+        }
+        if let Some(index) = index {
+            self.output_indices.insert(index, key);
+        }
+        self.current_item = key;
+        key
+    }
+
+    fn delta(&mut self, item: usize, part: u64, delta: &str) {
+        self.emitted
+            .entry((item, part))
+            .or_default()
+            .push_str(delta);
+    }
+
+    fn finish(
+        &mut self,
+        item: usize,
+        part: u64,
+        full_text: &str,
+    ) -> Result<Option<CanonicalStreamEvent>, ProxyError> {
+        let emitted = self.emitted.entry((item, part)).or_default();
+        let suffix = full_text.strip_prefix(emitted.as_str()).ok_or_else(|| {
+            ProxyError::UpstreamProtocol {
+                message: "upstream final text contradicts previously streamed text for the same content part".to_string(),
+            }
+        })?;
+        let event = (!suffix.is_empty()).then(|| CanonicalStreamEvent::TextDelta {
+            text: suffix.to_string(),
+        });
+        *emitted = full_text.to_string();
+        Ok(event)
+    }
+}
+
 pub fn parse_codex_sse_to_events(
     response_text: &str,
 ) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
     let mut events = Vec::new();
     let mut saw_message_start = false;
-    let mut accumulated_text = String::new();
+    let mut text_state = CodexTextState::default();
     let mut tool_state: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
+    let mut item_call_ids = std::collections::HashMap::<String, String>::new();
     let mut saw_tool_use = false;
 
     for line in response_text.lines() {
@@ -62,11 +148,32 @@ pub fn parse_codex_sse_to_events(
             "response.output_item.added" | "response.output_item.done" => {
                 if let Some(item) = event.get("item") {
                     match item.get("type").and_then(Value::as_str) {
-                        Some("message") if !saw_message_start => {
-                            saw_message_start = true;
-                            events.push(CanonicalStreamEvent::MessageStart);
+                        Some("message") => {
+                            if !saw_message_start {
+                                saw_message_start = true;
+                                events.push(CanonicalStreamEvent::MessageStart);
+                            }
+                            let text_item = text_state.item(&event, Some(item));
+                            if event_type == "response.output_item.done" {
+                                if let Some(content) = item.get("content").and_then(Value::as_array)
+                                {
+                                    for (part_index, part) in content.iter().enumerate() {
+                                        if let Some(text) = part.get("text").and_then(Value::as_str)
+                                        {
+                                            if let Some(delta) = text_state.finish(
+                                                text_item,
+                                                part_index as u64,
+                                                text,
+                                            )? {
+                                                events.push(delta);
+                                            }
+                                        }
+                                    }
+                                }
+                                // Identifier-free legacy events belong to the next item after done.
+                                text_state.current_item = text_state.fresh_item();
+                            }
                         }
-                        Some("message") => {}
                         Some("function_call") => {
                             saw_tool_use = true;
                             let call_id = item
@@ -75,6 +182,9 @@ pub fn parse_codex_sse_to_events(
                                 .and_then(Value::as_str)
                                 .unwrap_or_default()
                                 .to_string();
+                            if let Some(item_id) = item.get("id").and_then(Value::as_str) {
+                                item_call_ids.insert(item_id.to_string(), call_id.clone());
+                            }
                             let name = item
                                 .get("name")
                                 .and_then(Value::as_str)
@@ -134,11 +244,12 @@ pub fn parse_codex_sse_to_events(
             }
             "response.function_call_arguments.delta" => {
                 let call_id = event
-                    .get("item_id")
-                    .or_else(|| event.get("call_id"))
+                    .get("call_id")
+                    .or_else(|| event.get("item_id"))
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
+                let call_id = item_call_ids.get(&call_id).cloned().unwrap_or(call_id);
                 let delta = event
                     .get("delta")
                     .and_then(Value::as_str)
@@ -157,7 +268,12 @@ pub fn parse_codex_sse_to_events(
             }
             "response.output_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                    accumulated_text.push_str(delta);
+                    let item = text_state.item(&event, None);
+                    let part = event
+                        .get("content_index")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    text_state.delta(item, part, delta);
                     events.push(CanonicalStreamEvent::TextDelta {
                         text: delta.to_string(),
                     });
@@ -165,8 +281,13 @@ pub fn parse_codex_sse_to_events(
             }
             "response.output_text.done" => {
                 if let Some(text) = event.get("text").and_then(Value::as_str) {
-                    if accumulated_text.is_empty() {
-                        accumulated_text.push_str(text);
+                    let item = text_state.item(&event, None);
+                    let part = event
+                        .get("content_index")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    if let Some(delta) = text_state.finish(item, part, text)? {
+                        events.push(delta);
                     }
                     events.push(CanonicalStreamEvent::TextDone {
                         full_text: text.to_string(),
@@ -271,6 +392,7 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
     let id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let created = chrono::Utc::now().timestamp();
     let mut out = String::new();
+    let mut tool_indices = std::collections::HashMap::<String, u32>::new();
     for event in events {
         match event {
             CanonicalStreamEvent::MessageStart => {
@@ -314,6 +436,8 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
                 out.push_str("\n\n");
             }
             CanonicalStreamEvent::ToolCallStart { call_id, name } => {
+                let next_index = tool_indices.len() as u32;
+                let tool_index = *tool_indices.entry(call_id.clone()).or_insert(next_index);
                 let chunk = OpenAiChunk {
                     id: id.clone(),
                     object: "chat.completion.chunk".to_string(),
@@ -325,7 +449,7 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
                             role: None,
                             content: None,
                             tool_calls: Some(vec![OpenAiToolCallDelta {
-                                index: 0,
+                                index: tool_index,
                                 id: call_id.clone(),
                                 call_type: "function".to_string(),
                                 function: OpenAiFunctionDelta {
@@ -345,6 +469,8 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
                 call_id,
                 arguments_delta,
             } => {
+                let next_index = tool_indices.len() as u32;
+                let tool_index = *tool_indices.entry(call_id.clone()).or_insert(next_index);
                 let chunk = OpenAiChunk {
                     id: id.clone(),
                     object: "chat.completion.chunk".to_string(),
@@ -356,7 +482,7 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
                             role: None,
                             content: None,
                             tool_calls: Some(vec![OpenAiToolCallDelta {
-                                index: 0,
+                                index: tool_index,
                                 id: call_id.clone(),
                                 call_type: "function".to_string(),
                                 function: OpenAiFunctionDelta {
@@ -385,9 +511,11 @@ pub fn render_openai_sse(events: &[CanonicalStreamEvent], model: &str) -> String
                             content: None,
                             tool_calls: None,
                         },
-                        finish_reason: Some(
-                            finish_reason.clone().unwrap_or_else(|| "stop".to_string()),
-                        ),
+                        finish_reason: Some(match finish_reason.as_deref() {
+                            Some("tool_use") => "tool_calls".to_string(),
+                            Some(reason) => reason.to_string(),
+                            None => "stop".to_string(),
+                        }),
                     }],
                 };
                 out.push_str("data: ");
