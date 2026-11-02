@@ -15,8 +15,8 @@ import time
 import urllib.error
 import urllib.request
 
-MODELS = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol',
-          'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5']
+MODELS = ['gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol',
+          'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -110,7 +110,7 @@ class Suite:
         self.args, self.directory, self.results = args, directory, []
         self.base = None
         self.blockers = {}
-        self.alias_targets = {"sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "haiku": "claude-haiku-4-5-20251001"}
+        self.alias_targets = {"sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "haiku": "claude-haiku-5-5"}
 
     def check(self, model, scenario, function):
         started = time.monotonic()

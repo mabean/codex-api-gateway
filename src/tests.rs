@@ -88,8 +88,9 @@ fn normalizes_anthropic_model_aliases_to_current_versions() {
 
     assert_eq!(normalize_anthropic_model_id("sonnet"), "claude-sonnet-5-5");
     assert_eq!(normalize_anthropic_model_id("opus"), "claude-opus-5-5");
+    assert_eq!(normalize_anthropic_model_id("haiku"), "claude-haiku-5-5");
     assert_eq!(
-        normalize_anthropic_model_id("haiku"),
+        normalize_anthropic_model_id("claude-haiku-4-5"),
         "claude-haiku-4-5-20251001"
     );
     assert_eq!(
@@ -1482,6 +1483,7 @@ fn new_model_catalog_has_exact_ids_and_sourced_release_dates() {
     let catalog = gateway_models_response();
     let entries = catalog["data"].as_array().unwrap();
     for id in [
+        "gpt-6.1-terra",
         "gpt-6.1-sol",
         "gpt-6-astra",
         "gpt-6-luna",
@@ -1489,11 +1491,14 @@ fn new_model_catalog_has_exact_ids_and_sourced_release_dates() {
         "claude-fable-5-1",
         "claude-opus-5-5",
         "claude-sonnet-5-5",
+        "claude-haiku-5-5",
     ] {
         assert_eq!(entries.iter().filter(|entry| entry["id"] == id).count(), 1);
-        if id.starts_with("gpt-6") {
+        if id.starts_with("gpt-6") || id == "claude-haiku-5-5" {
             let entry = entries.iter().find(|entry| entry["id"] == id).unwrap();
             let expected = match id {
+                "gpt-6.1-terra" => "2026-10-26T00:00:00Z",
+                "claude-haiku-5-5" => "2026-10-07T00:00:00Z",
                 "gpt-6.1-sol" => "2026-09-29T00:00:00Z",
                 "gpt-6-astra" => "2026-09-03T00:00:00Z",
                 _ => "2026-09-22T00:00:00Z",
@@ -1516,11 +1521,22 @@ fn new_model_catalog_has_exact_ids_and_sourced_release_dates() {
 fn new_models_route_without_rewriting_explicit_ids_and_alias_overrides_work() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
-    for id in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"] {
+    for id in [
+        "gpt-6.1-terra",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+    ] {
         assert_eq!(normalize_codex_model_id(&format!("openai/{id}")), id);
         assert_eq!(route_anthropic_model(id), AnthropicModelRoute::Codex);
     }
-    for id in ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"] {
+    for id in [
+        "claude-fable-5-1",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+    ] {
         assert_eq!(normalize_anthropic_model_id(&format!("anthropic/{id}")), id);
         assert_eq!(route_anthropic_model(id), AnthropicModelRoute::Anthropic);
     }

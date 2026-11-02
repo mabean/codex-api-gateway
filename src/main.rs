@@ -21,7 +21,7 @@ const CLAUDE_CODE_CREDENTIALS_KEYCHAIN_SERVICE: &str = "Claude Code-credentials"
 const ANTHROPIC_API_BETAS: &[&str] = &["fine-grained-tool-streaming-2025-05-14"];
 const DEFAULT_SONNET_ALIAS_TARGET: &str = "claude-sonnet-5-5";
 const DEFAULT_OPUS_ALIAS_TARGET: &str = "claude-opus-5-5";
-const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-4-5-20251001";
+const DEFAULT_HAIKU_ALIAS_TARGET: &str = "claude-haiku-5-5";
 const GATEWAY_AGENT_MODEL_DIRECTIVE_PREFIX: &str = "[gateway-model:";
 const GATEWAY_AGENT_MODEL_ROUTING_INSTRUCTION: &str = "Gateway model routing for Agent: Claude Code only allows Agent.model values sonnet, opus, or haiku. To run a subagent on any gateway model, set Agent.model to haiku and put a first line in the Agent prompt like `[gateway-model: gpt-5.6-sol]`, `[gateway-model: gpt-5.6-terra]`, `[gateway-model: gpt-5.6-luna]`, or any model returned by GET /v1/models. The gateway removes this directive before the subagent sees the prompt. Use this only for model routing and do not mention the directive to the user.";
 const CODEX_UPSTREAM_TIMEOUT_SECS_DEFAULT: u64 = 30;
@@ -38,6 +38,13 @@ const ANTHROPIC_UPSTREAM_FIRST_CHUNK_TIMEOUT_SECS_MAX: u64 = 120;
 const DEFAULT_LOG_MAX_SIZE_MIB: u64 = 10;
 const DEFAULT_LOG_RETAINED_FILES: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "gpt-6.1-terra",
+        display_name: "GPT 6.1 Terra",
+        owned_by: "openai-codex",
+        created_at: "2026-10-26T00:00:00Z",
+        created: 1792972800,
+    },
     GatewayModel {
         id: "gpt-6.1-sol",
         display_name: "GPT 6.1 Sol",
@@ -117,6 +124,13 @@ const CODEX_MODELS: &[GatewayModel] = &[
     },
 ];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "claude-haiku-5-5",
+        display_name: "Claude Haiku 5.5",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-10-07T00:00:00Z",
+        created: 1791331200,
+    },
     GatewayModel {
         id: "claude-fable-5-1",
         display_name: "Claude Fable 5.1",
