@@ -10,7 +10,8 @@ Use this index to find documentation and implementation entrypoints. Open only t
 | Build, choose verification checks, and review live-suite prerequisites and execution modes | [BUILD.md](BUILD.md) |
 | Handle credentials, logs, outbound destinations, and security-sensitive changes | [SECURITY.md](SECURITY.md) |
 | Assess deployment scope, browser access, credential limitations, and other trust boundaries | [THREAT_MODEL.md](THREAT_MODEL.md) |
-| Review the current model catalog, release-date sources, and refresh validation | [2026-11-02 catalog verification](docs/model-verification-2026-11-02.md) |
+| Review the current model catalog, release-date sources, and refresh validation | [2026-11-18 catalog verification](docs/model-verification-2026-11-18.md) |
+| Review the Terra and Haiku catalog update | [2026-11-02 catalog verification](docs/model-verification-2026-11-02.md) |
 | Review earlier local approval, live results, and remaining blockers | [2026-10-05 verification](docs/model-verification-2026-10-05.md) |
 | Review Claude Code 2.1.289 request changes and mock compatibility | [2026-10-05 protocol comparison](docs/claude-code-protocol-2026-10-05.md) |
 | Contribute changes with a coding agent | [AGENTS.md](AGENTS.md) |

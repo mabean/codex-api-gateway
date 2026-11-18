@@ -1483,38 +1483,42 @@ fn new_model_catalog_has_exact_ids_and_sourced_release_dates() {
     let catalog = gateway_models_response();
     let entries = catalog["data"].as_array().unwrap();
     for id in [
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
         "gpt-6.1-terra",
         "gpt-6.1-sol",
         "gpt-6-astra",
         "gpt-6-luna",
         "gpt-6-sol",
+        "claude-fable-5-2",
         "claude-fable-5-1",
         "claude-opus-5-5",
         "claude-sonnet-5-5",
         "claude-haiku-5-5",
     ] {
         assert_eq!(entries.iter().filter(|entry| entry["id"] == id).count(), 1);
-        if id.starts_with("gpt-6") || id == "claude-haiku-5-5" {
-            let entry = entries.iter().find(|entry| entry["id"] == id).unwrap();
-            let expected = match id {
-                "gpt-6.1-terra" => "2026-10-26T00:00:00Z",
-                "claude-haiku-5-5" => "2026-10-07T00:00:00Z",
-                "gpt-6.1-sol" => "2026-09-29T00:00:00Z",
-                "gpt-6-astra" => "2026-09-03T00:00:00Z",
-                _ => "2026-09-22T00:00:00Z",
-            };
-            assert_eq!(entry["created_at"], expected);
-            assert_eq!(
-                entry["created"].as_i64().unwrap(),
-                chrono::DateTime::parse_from_rfc3339(expected)
-                    .unwrap()
-                    .timestamp()
-            );
-        }
+        let expected = match id {
+            "gpt-6.2-astra" | "gpt-6.2-sol" => "2026-11-17T00:00:00Z",
+            "gpt-6.1-terra" => "2026-10-26T00:00:00Z",
+            "gpt-6.1-sol" => "2026-09-29T00:00:00Z",
+            "gpt-6-astra" => "2026-09-03T00:00:00Z",
+            "gpt-6-sol" | "gpt-6-luna" => "2026-09-22T00:00:00Z",
+            "claude-fable-5-2" => "2026-11-09T00:00:00Z",
+            "claude-haiku-5-5" => "2026-10-07T00:00:00Z",
+            _ => continue,
+        };
+        let entry = entries.iter().find(|entry| entry["id"] == id).unwrap();
+        assert_eq!(entry["created_at"], expected);
+        assert_eq!(
+            entry["created"].as_i64().unwrap(),
+            chrono::DateTime::parse_from_rfc3339(expected)
+                .unwrap()
+                .timestamp()
+        );
     }
-    assert!(!entries
+    assert!(!entries.iter().any(|entry| ["gpt-6", "gpt-6.1", "gpt-6.2"]
         .iter()
-        .any(|entry| entry["id"] == "gpt-6" || entry["id"] == "gpt-6.1"));
+        .any(|id| entry["id"] == *id)));
 }
 
 #[test]
@@ -1522,6 +1526,8 @@ fn new_models_route_without_rewriting_explicit_ids_and_alias_overrides_work() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
     for id in [
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
         "gpt-6.1-terra",
         "gpt-6.1-sol",
         "gpt-6-astra",
@@ -1532,6 +1538,7 @@ fn new_models_route_without_rewriting_explicit_ids_and_alias_overrides_work() {
         assert_eq!(route_anthropic_model(id), AnthropicModelRoute::Codex);
     }
     for id in [
+        "claude-fable-5-2",
         "claude-fable-5-1",
         "claude-opus-5-5",
         "claude-sonnet-5-5",

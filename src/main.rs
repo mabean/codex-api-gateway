@@ -39,6 +39,20 @@ const DEFAULT_LOG_MAX_SIZE_MIB: u64 = 10;
 const DEFAULT_LOG_RETAINED_FILES: usize = 5;
 const CODEX_MODELS: &[GatewayModel] = &[
     GatewayModel {
+        id: "gpt-6.2-astra",
+        display_name: "GPT 6.2 Astra",
+        owned_by: "openai-codex",
+        created_at: "2026-11-17T00:00:00Z",
+        created: 1794873600,
+    },
+    GatewayModel {
+        id: "gpt-6.2-sol",
+        display_name: "GPT 6.2 Sol",
+        owned_by: "openai-codex",
+        created_at: "2026-11-17T00:00:00Z",
+        created: 1794873600,
+    },
+    GatewayModel {
         id: "gpt-6.1-terra",
         display_name: "GPT 6.1 Terra",
         owned_by: "openai-codex",
@@ -124,6 +138,13 @@ const CODEX_MODELS: &[GatewayModel] = &[
     },
 ];
 const ANTHROPIC_MODELS: &[GatewayModel] = &[
+    GatewayModel {
+        id: "claude-fable-5-2",
+        display_name: "Claude Fable 5.2",
+        owned_by: "anthropic-upstream",
+        created_at: "2026-11-09T00:00:00Z",
+        created: 1794182400,
+    },
     GatewayModel {
         id: "claude-haiku-5-5",
         display_name: "Claude Haiku 5.5",

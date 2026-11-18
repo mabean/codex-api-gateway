@@ -15,8 +15,8 @@ import time
 import urllib.error
 import urllib.request
 
-MODELS = ['gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol',
-          'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
+MODELS = ['gpt-6.2-astra', 'gpt-6.2-sol', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6-sol',
+          'claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -423,7 +423,7 @@ class Suite:
             # Overrides switch upstream families; clear probe blockers keyed by aliases.
             for alias in ('sonnet', 'opus', 'haiku'):
                 self.blockers.pop(alias, None)
-            with self.gateway({'CODEX_GATEWAY_ALIAS_SONNET': 'gpt-6.1-sol', 'CODEX_GATEWAY_ALIAS_OPUS': 'claude-fable-5-1',
+            with self.gateway({'CODEX_GATEWAY_ALIAS_SONNET': 'gpt-6.2-sol', 'CODEX_GATEWAY_ALIAS_OPUS': 'claude-fable-5-2',
                                'CODEX_GATEWAY_ALIAS_HAIKU': 'gpt-6-luna'}):
                 for alias in ('sonnet', 'opus', 'haiku'):
                     self.check(alias, '/v1/messages/SSE/override-alias', lambda a=alias: self.text_check(a, '/v1/messages', True))
