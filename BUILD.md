@@ -56,3 +56,17 @@ Gateway wire diagnostics are disabled by default. Set `CODEX_PROXY_VERBOSE=1` on
 Live suites consume account quota. Unit tests and `/health` do not establish upstream access. Preserve a dated, redacted report for meaningful acceptance runs. See the [2026-10-05 model verification report](docs/model-verification-2026-10-05.md) for earlier acceptance results and the [2026-11-18 catalog verification](docs/model-verification-2026-11-18.md) for the latest catalog refresh.
 
 The Claude Code acceptance suite runs with `--dangerously-skip-permissions` inside temporary workspaces and a bounded timeout/turn count. This bypasses Claude Code permission prompts; run the suite only in a trusted test environment.
+
+## Offline extracted Claude Code SDK contract (P1)
+
+On macOS arm64, prebuild the gateway with `cargo build --release --locked --offline` and have Node available locally. Supply the official local Claude Code binary; the harness never invokes the CLI, downloads dependencies, or calls a model:
+
+```bash
+python3 -B scripts/claude_contract_p1.py --binary /opt/homebrew/bin/claude
+```
+
+Only the pinned `2.1.329` fingerprint is accepted. An unknown build, missing SDK module, extraction failure, unsupported OS, or failed mandatory probe exits nonzero with a reason. Python unit tests use synthetic Mach-O/Bun data and require neither the client binary nor network access. The separate crate-age check above may access crates.io metadata.
+
+The runner prints a temporary evidence directory containing the binary/module/range manifest, unchanged extracted SDK source, sandbox policy, and structured result. Keep these local; do not commit extracted Anthropic code or raw logs. Results identify the SDK builder, SSE decoder, accumulator branch, gateway path, expected text/error and actual outcome. The main CLI parser, retries, tool/dialogue state and live upstream acceptance remain outside P1. See the [dated P1 verification](docs/claude-code-p1-verification-2026-11-20.md).
+
+`--fail-after-start` deliberately fails after starting owned services to verify failure cleanup; expect exit 1 and `owned_ports_closed`, `owned_process_cleanup`, and `unrelated_listener_alive` all true. Both normal and failure paths stop only this run's processes; no process-name matching or port-wide cleanup is used. Every isolated worker has a deadline and an owned process group for timeout cleanup.

@@ -1,0 +1,99 @@
+{
+  "version": "2.1.329",
+  "platform": "darwin-arm64",
+  "binary_sha256": "8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550",
+  "module": {
+    "id": 404,
+    "name": "/$bunfs/root/chunk-76t3g1yn.js",
+    "offset": 292647493,
+    "length": 349050,
+    "sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04"
+  },
+  "ranges": [
+    {
+      "name": "private/runtime",
+      "start": 19994,
+      "end": 20638,
+      "sha256": "aca5faf1624bd94e787f49574c2136be2a0abdb9d6d1935fa3ffdea8a2691ca1"
+    },
+    {
+      "name": "array",
+      "start": 20638,
+      "end": 20726,
+      "sha256": "3d59267028ce94d2cbe03207289a5ec79b483ee8e0a99cd588c1750590ddb240"
+    },
+    {
+      "name": "json/abort",
+      "start": 21150,
+      "end": 21759,
+      "sha256": "3342eb0e8046de6f36b7e19f24f17b75edc9e494032870c043d8b58c9d64a69c"
+    },
+    {
+      "name": "streams",
+      "start": 21970,
+      "end": 22738,
+      "sha256": "1f2b694783e7e6869b96b6e51caae067e2e56bc227379353c05426cf7d607fce"
+    },
+    {
+      "name": "text",
+      "start": 29495,
+      "end": 29810,
+      "sha256": "59c7eac360950d47ba5a2c087be2f6caa168a1d3b904af85f7282b14efbd7199"
+    },
+    {
+      "name": "logging",
+      "start": 30161,
+      "end": 30782,
+      "sha256": "ab3973e98a00dfa543b7686a785558cce7dd66d1d9c7b5e0eb62bbe468e04fe1"
+    },
+    {
+      "name": "decoder",
+      "start": 31777,
+      "end": 37779,
+      "sha256": "2e22924fede5444a955b4f8494179c4a42855d3c47162b16f7045cbc4bc6d0fc"
+    },
+    {
+      "name": "headers/resource",
+      "start": 47148,
+      "end": 48284,
+      "sha256": "c6aafca2223c04cdfa32b1d661ed0ab4254e99eb88bc2cf65054b1671af5ab25"
+    },
+    {
+      "name": "helpers",
+      "start": 53473,
+      "end": 54012,
+      "sha256": "9b13ba25e09484e1ef77300833bc4372a33a6cd002e586bcb8b64ef4d4bbe351"
+    },
+    {
+      "name": "message/parse",
+      "start": 92811,
+      "end": 98122,
+      "sha256": "26a8c0afe5a7805e0ce0df9502c139d2712f73bf812c8b7095a4fd6f949a5fa1"
+    },
+    {
+      "name": "accumulator",
+      "start": 98122,
+      "end": 108838,
+      "sha256": "d2df5eafaca539925d8d791c476e6386c1106ca144c0812a1f7728e584c4021f"
+    },
+    {
+      "name": "messages",
+      "start": 120899,
+      "end": 123169,
+      "sha256": "7e0881972c455ef0e4118d2fa9b6e358a788eb71dedcca425b1d94c8a78157c1"
+    }
+  ],
+  "entrypoints": [
+    "zi.create",
+    "zt.fromSSEResponse",
+    "cc",
+    "ff.createMessage",
+    "ff.finalText"
+  ],
+  "adapters": [
+    "Node fetch transport with redirect:error and numeric loopback allowlist",
+    "Ao/Jc error types and Zdt abort classification imported from external bundle",
+    "ni stream-helper header constant",
+    "fail-closed sentinels for unused nd/rb imports"
+  ]
+}

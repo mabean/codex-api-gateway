@@ -1,0 +1,7 @@
+{
+  "request": {"model":"claude-haiku-5-5","max_tokens":32,"stream":true},
+  "scenarios": [
+    {"id":"terminal-text","prompt":"p1-positive","text":"P1 terminal text"},
+    {"id":"event-order","prompt":"p1-invalid-order","error":"Unexpected event order, got content_block_delta before \"message_start\""}
+  ]
+}

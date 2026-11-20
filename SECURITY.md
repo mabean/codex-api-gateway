@@ -43,3 +43,9 @@ Treat a change as security-sensitive if it:
 - broadens the supported deployment model.
 
 Such changes should include an updated threat assessment and tests for secret handling and failure behavior.
+
+## Offline extracted SDK harness
+
+The P1 harness reads a fingerprint-pinned local Claude Code binary without invoking it, extracts only declared SDK source ranges into temporary storage, and executes those ranges in Node. This is local verification of the SDK layer, not a general-purpose sandbox for unknown executables. It requires macOS `sandbox-exec` and refuses an unconfined fallback. The worker, gateway, Node transport and fixture inherit an OS loopback-only network policy. Both gateway upstreams are explicit local fixture URLs. Node rejects redirects and destinations outside its exact local gateway origin.
+
+Children receive a minimal environment, temporary HOME/config/auth/log paths, and synthetic credentials. The policy denies the actual user's credential directories, keychain files, `/usr/bin/security`, and the securityd lookup. A protected synthetic file proves file-read denial without opening a real credential. A numeric TEST-NET connect must fail with OS `EPERM`; timeout/refusal does not count as isolation. Temporary source and diagnostic logs stay local. See [P1 verification](docs/claude-code-p1-verification-2026-11-20.md).

@@ -45,3 +45,9 @@ Public hosting, shared credentials, multi-user isolation, and untrusted local cl
 - A compromised trusted machine can read the same credentials as the gateway.
 
 Any proposal to expose the service beyond localhost requires a new threat review, downstream authentication, authorization, rate limiting, and secret-isolation design.
+
+## P1 extracted SDK verification boundary (2026-11-20)
+
+The optional offline P1 runner executes a bounded unchanged SDK source closure from one SHA-256-pinned official `2.1.329` macOS arm64 binary. Extraction validates Mach-O/Bun bounds, module identity and per-range hashes before Node loads it. Unknown binaries fail closed. Explicit loading shims provide imported error classes, abort classification, one stream-helper constant and throwing sentinels for unused SDK imports; transport is a Node fetch adapter. The SDK constructs the Messages request and parses/accumulates SSE. No claim is made about the main Claude Code parser or its retry/dialogue decisions.
+
+The worker process tree runs under a verified macOS loopback-only network policy with redirected HOME, minimal environment, synthetic auth and OS denials for real credential/keychain paths and access. Positive loopback identity, negative numeric TEST-NET, protected-file and external-redirect probes are mandatory. Explicit local upstreams and redirect rejection limit accidental external calls. The test process owns and terminates its children; it verifies its ports close while an unrelated listener survives. Timeout cleanup kills only the created process group. This boundary is intended for trusted pinned source, not hostile arbitrary Node programs. [Evidence and limits](docs/claude-code-p1-verification-2026-11-20.md).
