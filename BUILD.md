@@ -69,4 +69,19 @@ Only the pinned `2.1.329` fingerprint is accepted. An unknown build, missing SDK
 
 The runner prints a temporary evidence directory containing the binary/module/range manifest, unchanged extracted SDK source, sandbox policy, and structured result. Keep these local; do not commit extracted Anthropic code or raw logs. Results identify the SDK builder, SSE decoder, accumulator branch, gateway path, expected text/error and actual outcome. The main CLI parser, retries, tool/dialogue state and live upstream acceptance remain outside P1. See the [dated P1 verification](docs/claude-code-p1-verification-2026-11-20.md).
 
+## Offline Claude Code baseline diagnostics (P2)
+
+Use the same prebuilt gateway, local Node and pinned official binary as P1. No dependencies are downloaded and no live model is called:
+
+```bash
+python3 -B scripts/claude_contract_p2.py --binary /opt/homebrew/bin/claude --gateway target/release/codex-api-gateway
+python3 -B -m unittest discover -s scripts -p 'test_claude_contract_p2.py'
+```
+
+The runner verifies full-graph marker hits and raw-byte source ranges before executing twenty ordered cases across tool references, nested effort, clear_at, retry metadata, first SSE fragment timing and nonzero terminal usage. It reuses the pinned SDK, OS sandbox, isolated profiles and owned loopback processes. The effective turn controls use the original main-client `SXn` function; retries use original `shouldRetry` and `retryRequest` methods with bounded wait and counting request adapters. These retry cases establish decisions and delay selection, not automatic SDK transport retry. Tool-reference cases serialize a synthetic follow-up; they do not execute native ToolSearch.
+
+`known_gap` passes only when the recorded baseline defect is reproduced. `correct_behavior` requires its positive control to survive. `unavailable`, missing cases, malformed fields/IDs, unexpected behavior, failed isolation or cleanup, unknown fingerprints and infrastructure failures exit nonzero. The first-fragment test holds terminal events on a closed barrier; the forwarding positive control must emit a decoded text delta before release, and both routes must produce exact eventual terminal text. Usage compares the complete SDK terminal message against nonzero upstream counters, never HTTP status alone.
+
+The printed temporary evidence directory contains manifests, source ranges, synthetic request observations and structured outcomes; keep extracted modules and raw traces local. The [dated inventory](docs/claude-code-contract-inventory-2026-11-20.md) links the structured anchors and maps all nine future P3–P5 acceptance criteria, including unresolved provider conditions. P2 diagnostic success establishes the baseline, not repaired compatibility or live acceptance. The full CI baseline above and P1 command remain required checks.
+
 `--fail-after-start` deliberately fails after starting owned services to verify failure cleanup; expect exit 1 and `owned_ports_closed`, `owned_process_cleanup`, and `unrelated_listener_alive` all true. Both normal and failure paths stop only this run's processes; no process-name matching or port-wide cleanup is used. Every isolated worker has a deadline and an owned process group for timeout cleanup.

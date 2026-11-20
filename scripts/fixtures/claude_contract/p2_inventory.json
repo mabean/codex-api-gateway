@@ -1,0 +1,1271 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "status": "P2 baseline inventory; not P3-P5 acceptance",
+  "source": "pinned official binary raw Bun bytes",
+  "binary_sha256": "8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550",
+  "graph_module_count": 3657,
+  "scan_markers": [
+    "ANTHROPIC_BASE_URL",
+    "/v1/messages",
+    "/v1/messages/count_tokens",
+    "/v1/models",
+    "/api/hello",
+    "beta.messages.create",
+    "beta.messages.countTokens",
+    "fetch(",
+    "baseURL:",
+    "retry-after-ms",
+    "x-should-retry",
+    "clear_at",
+    "output_config",
+    "tool_reference",
+    "context_management",
+    "citations_delta",
+    "thinking_delta",
+    "compaction_delta",
+    "anthropic-ratelimit-unified-status"
+  ],
+  "scan_hits": {
+    "ANTHROPIC_BASE_URL": [
+      {
+        "id": 62,
+        "count": 1
+      },
+      {
+        "id": 75,
+        "count": 3
+      },
+      {
+        "id": 101,
+        "count": 1
+      },
+      {
+        "id": 123,
+        "count": 12
+      },
+      {
+        "id": 124,
+        "count": 4
+      },
+      {
+        "id": 132,
+        "count": 2
+      },
+      {
+        "id": 147,
+        "count": 1
+      },
+      {
+        "id": 150,
+        "count": 1
+      },
+      {
+        "id": 177,
+        "count": 1
+      },
+      {
+        "id": 182,
+        "count": 2
+      },
+      {
+        "id": 186,
+        "count": 2
+      },
+      {
+        "id": 189,
+        "count": 1
+      },
+      {
+        "id": 190,
+        "count": 17
+      },
+      {
+        "id": 193,
+        "count": 3
+      },
+      {
+        "id": 196,
+        "count": 1
+      },
+      {
+        "id": 221,
+        "count": 19
+      },
+      {
+        "id": 299,
+        "count": 1
+      },
+      {
+        "id": 324,
+        "count": 8
+      },
+      {
+        "id": 329,
+        "count": 5
+      },
+      {
+        "id": 343,
+        "count": 1
+      },
+      {
+        "id": 347,
+        "count": 4
+      },
+      {
+        "id": 348,
+        "count": 4
+      },
+      {
+        "id": 388,
+        "count": 5
+      },
+      {
+        "id": 404,
+        "count": 6
+      },
+      {
+        "id": 476,
+        "count": 1
+      },
+      {
+        "id": 501,
+        "count": 1
+      },
+      {
+        "id": 512,
+        "count": 1
+      },
+      {
+        "id": 652,
+        "count": 2
+      },
+      {
+        "id": 720,
+        "count": 5
+      },
+      {
+        "id": 753,
+        "count": 2
+      },
+      {
+        "id": 759,
+        "count": 3
+      },
+      {
+        "id": 760,
+        "count": 2
+      },
+      {
+        "id": 765,
+        "count": 1
+      },
+      {
+        "id": 794,
+        "count": 2
+      },
+      {
+        "id": 824,
+        "count": 6
+      },
+      {
+        "id": 830,
+        "count": 3
+      },
+      {
+        "id": 861,
+        "count": 2
+      },
+      {
+        "id": 866,
+        "count": 1
+      },
+      {
+        "id": 961,
+        "count": 1
+      },
+      {
+        "id": 1001,
+        "count": 1
+      },
+      {
+        "id": 1010,
+        "count": 3
+      },
+      {
+        "id": 1025,
+        "count": 1
+      },
+      {
+        "id": 1033,
+        "count": 1
+      },
+      {
+        "id": 1034,
+        "count": 1
+      },
+      {
+        "id": 1194,
+        "count": 1
+      },
+      {
+        "id": 1401,
+        "count": 1
+      },
+      {
+        "id": 1472,
+        "count": 2
+      },
+      {
+        "id": 1503,
+        "count": 5
+      },
+      {
+        "id": 1861,
+        "count": 4
+      },
+      {
+        "id": 1912,
+        "count": 1
+      },
+      {
+        "id": 2047,
+        "count": 2
+      },
+      {
+        "id": 2095,
+        "count": 1
+      },
+      {
+        "id": 2155,
+        "count": 1
+      },
+      {
+        "id": 2158,
+        "count": 2
+      },
+      {
+        "id": 2205,
+        "count": 1
+      },
+      {
+        "id": 2223,
+        "count": 3
+      },
+      {
+        "id": 2314,
+        "count": 1
+      },
+      {
+        "id": 2433,
+        "count": 1
+      },
+      {
+        "id": 2548,
+        "count": 1
+      },
+      {
+        "id": 2551,
+        "count": 1
+      },
+      {
+        "id": 2556,
+        "count": 1
+      },
+      {
+        "id": 3204,
+        "count": 1
+      },
+      {
+        "id": 3396,
+        "count": 1
+      }
+    ],
+    "/v1/messages": [
+      {
+        "id": 404,
+        "count": 15
+      },
+      {
+        "id": 720,
+        "count": 1
+      },
+      {
+        "id": 794,
+        "count": 2
+      },
+      {
+        "id": 1907,
+        "count": 5
+      },
+      {
+        "id": 1908,
+        "count": 2
+      },
+      {
+        "id": 1912,
+        "count": 2
+      },
+      {
+        "id": 2223,
+        "count": 27
+      },
+      {
+        "id": 2653,
+        "count": 1
+      },
+      {
+        "id": 3400,
+        "count": 1
+      }
+    ],
+    "/v1/messages/count_tokens": [
+      {
+        "id": 404,
+        "count": 2
+      },
+      {
+        "id": 794,
+        "count": 1
+      },
+      {
+        "id": 1907,
+        "count": 2
+      },
+      {
+        "id": 2223,
+        "count": 7
+      }
+    ],
+    "/v1/models": [
+      {
+        "id": 221,
+        "count": 1
+      },
+      {
+        "id": 404,
+        "count": 4
+      },
+      {
+        "id": 961,
+        "count": 5
+      },
+      {
+        "id": 1912,
+        "count": 4
+      },
+      {
+        "id": 2223,
+        "count": 5
+      }
+    ],
+    "/api/hello": [
+      {
+        "id": 866,
+        "count": 1
+      },
+      {
+        "id": 1990,
+        "count": 2
+      },
+      {
+        "id": 2700,
+        "count": 1
+      },
+      {
+        "id": 2736,
+        "count": 1
+      }
+    ],
+    "beta.messages.create": [
+      {
+        "id": 404,
+        "count": 2
+      },
+      {
+        "id": 589,
+        "count": 1
+      },
+      {
+        "id": 720,
+        "count": 6
+      },
+      {
+        "id": 2147,
+        "count": 1
+      }
+    ],
+    "beta.messages.countTokens": [
+      {
+        "id": 720,
+        "count": 1
+      }
+    ],
+    "fetch(": [
+      {
+        "id": 189,
+        "count": 5
+      },
+      {
+        "id": 220,
+        "count": 1
+      },
+      {
+        "id": 221,
+        "count": 15
+      },
+      {
+        "id": 347,
+        "count": 3
+      },
+      {
+        "id": 430,
+        "count": 2
+      },
+      {
+        "id": 486,
+        "count": 3
+      },
+      {
+        "id": 560,
+        "count": 3
+      },
+      {
+        "id": 658,
+        "count": 2
+      },
+      {
+        "id": 720,
+        "count": 4
+      },
+      {
+        "id": 744,
+        "count": 1
+      },
+      {
+        "id": 794,
+        "count": 3
+      },
+      {
+        "id": 979,
+        "count": 2
+      },
+      {
+        "id": 1395,
+        "count": 1
+      },
+      {
+        "id": 1396,
+        "count": 2
+      },
+      {
+        "id": 1465,
+        "count": 4
+      },
+      {
+        "id": 1622,
+        "count": 1
+      },
+      {
+        "id": 1659,
+        "count": 3
+      },
+      {
+        "id": 1761,
+        "count": 2
+      },
+      {
+        "id": 1840,
+        "count": 4
+      },
+      {
+        "id": 1990,
+        "count": 2
+      },
+      {
+        "id": 2075,
+        "count": 2
+      },
+      {
+        "id": 2155,
+        "count": 1
+      },
+      {
+        "id": 2223,
+        "count": 5
+      },
+      {
+        "id": 2574,
+        "count": 2
+      },
+      {
+        "id": 2736,
+        "count": 1
+      },
+      {
+        "id": 2809,
+        "count": 1
+      },
+      {
+        "id": 2997,
+        "count": 1
+      }
+    ],
+    "baseURL:": [
+      {
+        "id": 165,
+        "count": 1
+      },
+      {
+        "id": 221,
+        "count": 4
+      },
+      {
+        "id": 347,
+        "count": 4
+      },
+      {
+        "id": 404,
+        "count": 10
+      },
+      {
+        "id": 1901,
+        "count": 2
+      },
+      {
+        "id": 1904,
+        "count": 3
+      },
+      {
+        "id": 1905,
+        "count": 4
+      },
+      {
+        "id": 1907,
+        "count": 2
+      },
+      {
+        "id": 1908,
+        "count": 4
+      },
+      {
+        "id": 2223,
+        "count": 8
+      }
+    ],
+    "retry-after-ms": [
+      {
+        "id": 404,
+        "count": 1
+      },
+      {
+        "id": 720,
+        "count": 1
+      },
+      {
+        "id": 1902,
+        "count": 2
+      }
+    ],
+    "x-should-retry": [
+      {
+        "id": 189,
+        "count": 1
+      },
+      {
+        "id": 221,
+        "count": 2
+      },
+      {
+        "id": 404,
+        "count": 1
+      },
+      {
+        "id": 720,
+        "count": 12
+      },
+      {
+        "id": 794,
+        "count": 1
+      },
+      {
+        "id": 1763,
+        "count": 3
+      },
+      {
+        "id": 2075,
+        "count": 1
+      },
+      {
+        "id": 2223,
+        "count": 12
+      },
+      {
+        "id": 3291,
+        "count": 1
+      }
+    ],
+    "clear_at": [
+      {
+        "id": 189,
+        "count": 1
+      },
+      {
+        "id": 221,
+        "count": 1
+      },
+      {
+        "id": 720,
+        "count": 15
+      },
+      {
+        "id": 794,
+        "count": 1
+      }
+    ],
+    "output_config": [
+      {
+        "id": 404,
+        "count": 13
+      },
+      {
+        "id": 419,
+        "count": 1
+      },
+      {
+        "id": 589,
+        "count": 2
+      },
+      {
+        "id": 720,
+        "count": 35
+      },
+      {
+        "id": 794,
+        "count": 8
+      },
+      {
+        "id": 872,
+        "count": 1
+      },
+      {
+        "id": 1087,
+        "count": 1
+      },
+      {
+        "id": 1145,
+        "count": 1
+      },
+      {
+        "id": 2223,
+        "count": 4
+      }
+    ],
+    "tool_reference": [
+      {
+        "id": 189,
+        "count": 2
+      },
+      {
+        "id": 221,
+        "count": 2
+      },
+      {
+        "id": 404,
+        "count": 2
+      },
+      {
+        "id": 415,
+        "count": 1
+      },
+      {
+        "id": 417,
+        "count": 1
+      },
+      {
+        "id": 566,
+        "count": 3
+      },
+      {
+        "id": 720,
+        "count": 18
+      },
+      {
+        "id": 794,
+        "count": 4
+      },
+      {
+        "id": 1912,
+        "count": 1
+      }
+    ],
+    "context_management": [
+      {
+        "id": 124,
+        "count": 21
+      },
+      {
+        "id": 189,
+        "count": 2
+      },
+      {
+        "id": 221,
+        "count": 2
+      },
+      {
+        "id": 404,
+        "count": 6
+      },
+      {
+        "id": 419,
+        "count": 3
+      },
+      {
+        "id": 520,
+        "count": 2
+      },
+      {
+        "id": 566,
+        "count": 3
+      },
+      {
+        "id": 720,
+        "count": 30
+      },
+      {
+        "id": 794,
+        "count": 1
+      },
+      {
+        "id": 872,
+        "count": 2
+      },
+      {
+        "id": 896,
+        "count": 8
+      },
+      {
+        "id": 1136,
+        "count": 3
+      },
+      {
+        "id": 1145,
+        "count": 1
+      },
+      {
+        "id": 2095,
+        "count": 1
+      },
+      {
+        "id": 2201,
+        "count": 1
+      }
+    ],
+    "citations_delta": [
+      {
+        "id": 404,
+        "count": 4
+      },
+      {
+        "id": 720,
+        "count": 4
+      },
+      {
+        "id": 1984,
+        "count": 1
+      },
+      {
+        "id": 1990,
+        "count": 1
+      }
+    ],
+    "thinking_delta": [
+      {
+        "id": 189,
+        "count": 2
+      },
+      {
+        "id": 404,
+        "count": 4
+      },
+      {
+        "id": 720,
+        "count": 8
+      },
+      {
+        "id": 896,
+        "count": 3
+      },
+      {
+        "id": 1145,
+        "count": 1
+      },
+      {
+        "id": 1984,
+        "count": 4
+      },
+      {
+        "id": 1990,
+        "count": 3
+      },
+      {
+        "id": 2087,
+        "count": 1
+      }
+    ],
+    "compaction_delta": [
+      {
+        "id": 404,
+        "count": 2
+      },
+      {
+        "id": 720,
+        "count": 1
+      },
+      {
+        "id": 1984,
+        "count": 1
+      },
+      {
+        "id": 1990,
+        "count": 1
+      }
+    ],
+    "anthropic-ratelimit-unified-status": [
+      {
+        "id": 189,
+        "count": 1
+      },
+      {
+        "id": 404,
+        "count": 1
+      },
+      {
+        "id": 589,
+        "count": 7
+      },
+      {
+        "id": 720,
+        "count": 3
+      },
+      {
+        "id": 2223,
+        "count": 3
+      }
+    ]
+  },
+  "spans": [
+    {
+      "id": "sdk-resource",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 120899,
+      "end": 123169,
+      "binary_start": 292768392,
+      "sha256": "7e0881972c455ef0e4118d2fa9b6e358a788eb71dedcca425b1d94c8a78157c1"
+    },
+    {
+      "id": "sdk-transport",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 166200,
+      "end": 180000,
+      "binary_start": 292813693,
+      "sha256": "e2810cc9f477dd3e763602be4256426d86f0e7fa308b4b9fba413b5044ab1af1"
+    },
+    {
+      "id": "sdk-consumer",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 98122,
+      "end": 108838,
+      "binary_start": 292745615,
+      "sha256": "d2df5eafaca539925d8d791c476e6386c1106ca144c0812a1f7728e584c4021f"
+    },
+    {
+      "id": "base-url-auth",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 330000,
+      "end": 335900,
+      "binary_start": 292977493,
+      "sha256": "35a7831b081c31fc8633534fe6b18795aa703e183a981cbfb29f066b362b0c35"
+    },
+    {
+      "id": "main-count",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 1379000,
+      "end": 1381100,
+      "binary_start": 298773279,
+      "sha256": "89a33bd5e7824956a339b6b23675124d0e7220b3752e2cec5da119cc9434373d"
+    },
+    {
+      "id": "main-aux-fallback",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3123900,
+      "end": 3131500,
+      "binary_start": 300518179,
+      "sha256": "d3f1e0ad3fa015ec0f4a07d11b879d61ad652158cd3d02417c5bf7d67ac80d90"
+    },
+    {
+      "id": "main-request-response",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3199000,
+      "end": 3274000,
+      "binary_start": 300593279,
+      "sha256": "b187c66faef91394fe97d6a4ef04e705c3889456ba96f6673b50c04ee1892126"
+    },
+    {
+      "id": "main-side-query",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3301000,
+      "end": 3314500,
+      "binary_start": 300695279,
+      "sha256": "aa195b61d064154c120ee241b8d6315e2abacb8e668712b9941768a33f34e6ea"
+    },
+    {
+      "id": "main-turn-shaper",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3079373,
+      "end": 3079721,
+      "binary_start": 300473652,
+      "sha256": "87fe3edc072b4fc438d3e370ff38573dfa3ee5e617ad3cab8e31329bab3620ca"
+    },
+    {
+      "id": "main-rejection-predicates",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 2235200,
+      "end": 2245500,
+      "binary_start": 299629479,
+      "sha256": "275e1c550615ce5fc894ab2a6f2394e9c5aba90af3003a7e944b5662fda3e8a7"
+    },
+    {
+      "id": "main-tools-rewrite",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 2062400,
+      "end": 2063800,
+      "binary_start": 299456679,
+      "sha256": "70e8764212e95c73762faf9e542c696b1d00aad5ee75bdb7200974ae38dd6504"
+    },
+    {
+      "id": "gateway-discovery",
+      "module_id": 221,
+      "module": "/$bunfs/root/chunk-aq3ms068.js",
+      "module_sha256": "322ff8e768ead8d7a129bd0db4267b1bb260f3fb24e11b496fb01b3daa61fa9c",
+      "start": 372900,
+      "end": 376900,
+      "binary_start": 289889563,
+      "sha256": "77ab3bd929031eb50ce40f77437d452013a2f8b2756ad93ea2c824045f298920"
+    },
+    {
+      "id": "sdk-model-resources",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 55400,
+      "end": 56100,
+      "binary_start": 292702893,
+      "sha256": "e8be3c0d0e00f693108bef08bbf36abf8f7f890923a2f3742d89a4e265fd5985"
+    }
+  ],
+  "records": [
+    {
+      "id": "primary-messages",
+      "activation": "First-party provider with configured ANTHROPIC_BASE_URL; main turn",
+      "request_or_events": "POST /v1/messages?beta=true; model/messages/system/tools/thinking/output_config and conditional fields",
+      "caller_transport_consumer": "aL baseURL -> main Hw request -> mg.beta.messages.create -> zi.create -> SDK post -> zt SSE -> main event switch",
+      "next_outcome": "Accumulates assistant blocks/usage; tool_use returns to client tool loop and next messages request",
+      "anthropic": "Pass-through SSE; typed request reconstruction and system hoisting",
+      "codex": "Anthropic->Chat->Responses normalization and buffered SSE rendering",
+      "proof": "static caller + extracted SDK runtime",
+      "source_spans": [
+        "base-url-auth",
+        "main-request-response",
+        "sdk-resource",
+        "sdk-transport",
+        "sdk-consumer"
+      ],
+      "acceptance": [
+        "P3-AC1",
+        "P3-AC2",
+        "P4-AC3",
+        "P5-AC1",
+        "P5-AC2"
+      ],
+      "remaining_condition": "None for the bounded local observation."
+    },
+    {
+      "id": "auxiliary-messages",
+      "activation": "Side query model helper; token estimation sampling; compaction/other query sources",
+      "request_or_events": "Nonstreaming Messages; max_tokens and query-source-specific system/tools/effort",
+      "caller_transport_consumer": "side yi.beta.messages.create; count NLr -> beta.messages.create; auxiliary R.beta.messages.create -> SDK post",
+      "next_outcome": "Returns JSON content or usage; nonstreaming fallback parses text JSON if content type is wrong",
+      "anthropic": "Shared ingress reconstruction; no special auxiliary endpoint",
+      "codex": "Shared normalization; model selects adapter",
+      "proof": "static reachable callers; SDK-only runtime does not execute complete helper",
+      "source_spans": [
+        "main-side-query",
+        "main-count",
+        "main-aux-fallback",
+        "sdk-resource"
+      ],
+      "acceptance": [
+        "P3-AC1",
+        "P4-AC3"
+      ],
+      "remaining_condition": "Helper-specific features/server flags and model/provider predicates not exercised end to end."
+    },
+    {
+      "id": "retry-fallback",
+      "activation": "HTTP errors; context_management/effort/turn-shape rejection predicates; streamed request fallback",
+      "request_or_events": "429 header-controlled retry; nonstreaming stream:false fallback; rejected beta/field removal branches",
+      "caller_transport_consumer": "SDK makeRequest -> shouldRetry -> retryRequest -> makeRequest; main retry wrapper uses rejection predicates; Q.beta.messages.create stream:false",
+      "next_outcome": "SDK delay priority is retry-after-ms then Retry-After then exponential jitter; high-level fallback can issue changed request",
+      "anthropic": "429 status/body retained; retry metadata lost",
+      "codex": "Codex upstream has own bounded retries; SDK sees gateway response",
+      "proof": "original SDK predicates/delay executed on direct and gateway 429; high-level fallback static only",
+      "source_spans": [
+        "sdk-transport",
+        "main-rejection-predicates",
+        "main-aux-fallback",
+        "main-request-response"
+      ],
+      "acceptance": [
+        "P3-AC2"
+      ],
+      "remaining_condition": "Automatic SDK transport retry and main context-management removal are future P3 execution checks; current delay test uses counting makeRequest adapter."
+    },
+    {
+      "id": "count-tokens",
+      "activation": "Not disabled, supported provider/model; p8t token estimator",
+      "request_or_events": "POST /v1/messages/count_tokens?beta=true; token-counting beta plus model/messages/tools/thinking",
+      "caller_transport_consumer": "p8t -> aL -> beta.messages.countTokens -> zi.countTokens -> SDK post",
+      "next_outcome": "Numeric input_tokens returned; exceptions become null; configured gateway 501 can trigger NLr sample then local estimator",
+      "anthropic": "No count_tokens route: dated report 404",
+      "codex": "No count_tokens route; client estimation fallback required",
+      "proof": "static real caller + dated 2026-11-20 report",
+      "source_spans": [
+        "main-count",
+        "sdk-resource"
+      ],
+      "acceptance": [
+        "P3-AC3"
+      ],
+      "remaining_condition": "P3 must execute extracted countTokens route and verify query/auth/alias. P2 does not claim sample inference is quota free against live providers."
+    },
+    {
+      "id": "model-discovery",
+      "activation": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, firstParty, ANTHROPIC_BASE_URL, not excluded auth mode",
+      "request_or_events": "GET /v1/models?limit=1000; redirect:error; bounded timeout",
+      "caller_transport_consumer": "jp gating -> ayl -> fetch -> validated data -> cache keyed by base URL -> picker",
+      "next_outcome": "Filters claude/anthropic models and caches picker entries",
+      "anthropic": "Explicit local models handler",
+      "codex": "Same shared local catalog handler",
+      "proof": "static concrete gateway fetch caller",
+      "source_spans": [
+        "gateway-discovery"
+      ],
+      "acceptance": [
+        "P3-AC3"
+      ],
+      "remaining_condition": "Model cache, auth and flag predicates require client-specific isolated execution beyond this P2 SDK diagnostic."
+    },
+    {
+      "id": "headers-betas-attribution",
+      "activation": "API key or OAuth and enabled conditional client features",
+      "request_or_events": "anthropic-version, anthropic-beta; client attribution system block; cache_control and metadata",
+      "caller_transport_consumer": "aL credentials/default headers -> request betas -> zi header builder -> transport",
+      "next_outcome": "Response headers feed rate-limit and retry state",
+      "anthropic": "Version/betas forwarded; OAuth prepends old 2.1.119 attribution before existing block",
+      "codex": "Headers used at ingress; Codex upstream uses distinct headers",
+      "proof": "SDK runtime version/beta control; OAuth behavior in dated report/static gateway",
+      "source_spans": [
+        "base-url-auth",
+        "sdk-resource",
+        "main-request-response"
+      ],
+      "acceptance": [
+        "P3-AC1",
+        "P3-AC2"
+      ],
+      "remaining_condition": "P3 must verify API key and synthetic OAuth first/unique original attribution; no real OAuth claim."
+    },
+    {
+      "id": "turn-controls",
+      "activation": "Scoped system/statement maps after selected conversation index",
+      "request_or_events": "role:system content plus clear_at:next_user_message; effort-only system entry content:[] output_config",
+      "caller_transport_consumer": "main SXn wire shaper -> main request -> zi -> gateway ingress",
+      "next_outcome": "Chronology maintained by client; next user clears scoped content at server; last applicable effort should override top-level",
+      "anthropic": "Hoists content; loses clear_at and nested effort",
+      "codex": "Hoists instructions; reasoning:null; effort-only can return structured 400",
+      "proof": "original SXn and SDK runtime, both routes and follow-up chronology",
+      "source_spans": [
+        "main-turn-shaper",
+        "main-request-response"
+      ],
+      "acceptance": [
+        "P3-AC1",
+        "P4-AC1"
+      ],
+      "remaining_condition": "None for the bounded local observation."
+    },
+    {
+      "id": "tools-discovery",
+      "activation": "Deferred tool selection; advanced tool use enabled",
+      "request_or_events": "ToolSearch tool_use -> matching tool_result tool_reference/tool_name; deferred tools schema",
+      "caller_transport_consumer": "main tool result normalization/rewrite -> next Messages request; extracted SDK serializes synthetic follow-up",
+      "next_outcome": "Found schema available on next turn; permitted client tool executor owns execution",
+      "anthropic": "Preserves references and Read/NotebookEdit deferred schemas",
+      "codex": "Reference becomes empty function_call_output; Read schema survives; NotebookEdit filtered",
+      "proof": "SDK runtime synthetic references; native ToolSearch not executed",
+      "source_spans": [
+        "main-tools-rewrite",
+        "main-request-response",
+        "sdk-resource"
+      ],
+      "acceptance": [
+        "P4-AC2"
+      ],
+      "remaining_condition": "Future P4 needs native ToolSearch -> supported tool execution and matched result. NotebookEdit remains outside Bash/Edit/Read/Write boundary."
+    },
+    {
+      "id": "extra-codex-fields",
+      "activation": "Main conditional output formatting, context management or tool_choice",
+      "request_or_events": "output_config.format, thinking, context_management, tool_choice, cache_control",
+      "caller_transport_consumer": "main request conditional spreads -> SDK passthrough -> typed ingress -> Chat translation",
+      "next_outcome": "Some fields are retained at ingress but absent from Codex representation",
+      "anthropic": "Typed ingress preserves supported top-level extras; verify exact combinations later",
+      "codex": "No declared support for untested format/context/tool_choice combinations",
+      "proof": "static reachable field branches; no new support claim",
+      "source_spans": [
+        "main-request-response",
+        "sdk-resource"
+      ],
+      "acceptance": [
+        "P4-AC3"
+      ],
+      "remaining_condition": "P4 must execute every newly claimed combination or document structured refusal/product boundary."
+    },
+    {
+      "id": "sse-first-fragment",
+      "activation": "stream:true with upstream first text before terminal completion",
+      "request_or_events": "message_start/content_block_delta then terminal barrier; Codex response.output_text.delta",
+      "caller_transport_consumer": "zt/cc -> ff event listener and finalMessage; gateway Codex reads full response before canonical rendering",
+      "next_outcome": "Forwarding first delta arrives before release; baseline Codex first delta only after release",
+      "anthropic": "Positive control streams before closed terminal barrier",
+      "codex": "Known buffering gap; eventual text confirmed after release",
+      "proof": "extracted SDK event consumer + explicit closed barrier",
+      "source_spans": [
+        "sdk-consumer",
+        "main-request-response"
+      ],
+      "acceptance": [
+        "P5-AC1"
+      ],
+      "remaining_condition": "P5 adds cancellation, disconnect, error after first fragment and duplicate prevention; P2 bounded absence is a baseline observation."
+    },
+    {
+      "id": "usage-terminal",
+      "activation": "Nonzero input/output/cache counters supplied by fixture",
+      "request_or_events": "message_start usage, message_delta usage, stop reason, message_stop; Codex response.completed usage",
+      "caller_transport_consumer": "zt/cc -> ff full terminal message usage; main parser updates running usage",
+      "next_outcome": "Final message must contain terminal text and expected counters; HTTP 200 insufficient",
+      "anthropic": "17 input,11 output,5 cache-read,3 cache-created preserved",
+      "codex": "Known zero input/output despite 17/11 upstream counters",
+      "proof": "extracted terminal SDK accumulator runtime",
+      "source_spans": [
+        "sdk-consumer",
+        "main-request-response"
+      ],
+      "acceptance": [
+        "P5-AC2"
+      ],
+      "remaining_condition": "P5 extends terminal reasons/tool/max_tokens/incomplete/error cases; current synthetic fixture does not prove provider availability of every counter."
+    },
+    {
+      "id": "extended-events",
+      "activation": "Upstream supplies thinking/signatures/citations/compaction/server metadata",
+      "request_or_events": "thinking_delta estimated_tokens, signature_delta, citations_delta, compaction_delta and stop metadata",
+      "caller_transport_consumer": "main event switch validates delta/block type and accumulates citations/thinking; SDK accumulator has own supported subset",
+      "next_outcome": "Main parser preserves supported event fields; source availability limits translated output",
+      "anthropic": "Raw SSE forwards extended events",
+      "codex": "Canonical stream lacks corresponding thinking/citation/compaction data; no Anthropic signature synthesis",
+      "proof": "static main parser and canonical source inspection; runtime unavailable for absent Codex source data",
+      "source_spans": [
+        "main-request-response",
+        "sdk-consumer"
+      ],
+      "acceptance": [
+        "P5-AC3"
+      ],
+      "remaining_condition": "unavailable: real Codex provider evidence for representable fields; P5 must test available events and document source absences, never fabricate signatures."
+    },
+    {
+      "id": "sdk-only-resources",
+      "activation": "No concrete CLI caller found during this bounded full-graph endpoint scan",
+      "request_or_events": "SDK /v1/models retrieve/list and other administration/resource endpoints",
+      "caller_transport_consumer": "SDK resource declarations -> get/post; no resolved base-URL CLI activation chain",
+      "next_outcome": "Do not promote SDK method existence into a CLI requirement",
+      "anthropic": "No support commitment from SDK declaration alone",
+      "codex": "No support commitment from SDK declaration alone",
+      "proof": "sdk_only",
+      "source_spans": [
+        "sdk-model-resources",
+        "sdk-transport"
+      ],
+      "acceptance": [
+        "P3-AC3"
+      ],
+      "remaining_condition": "New concrete callers require inventory extension; full graph marker scan does not resolve all computed/dynamic endpoint strings."
+    },
+    {
+      "id": "server-conditioned-dynamic",
+      "activation": "Remote flags, alternate provider, socket mode, dynamic imports or computed dispatch",
+      "request_or_events": "Conditional additional beta fields and transports; imported fetch overrides",
+      "caller_transport_consumer": "Main feature predicates and aL provider selection; dynamic dispatch beyond explicit traced chains remains unresolved",
+      "next_outcome": "Record candidate paths without claiming exhaustive dynamic reachability",
+      "anthropic": "Conditional; no live server assignment evidence",
+      "codex": "Conditional; no source/provider evidence for new protocol support",
+      "proof": "server_conditioned_and_unresolved_dynamic",
+      "source_spans": [
+        "base-url-auth",
+        "main-request-response",
+        "gateway-discovery"
+      ],
+      "acceptance": [
+        "P4-AC3",
+        "P5-AC3"
+      ],
+      "remaining_condition": "Separate provider/account/remote-flag evidence and product decision required. Non-firstParty providers/telemetry are outside compatibility scope."
+    }
+  ],
+  "normalizations": [
+    "requested alias resolved to upstream model",
+    "role:system messages hoisted by current ingress (known semantics loss)",
+    "Codex translator filters tools to Bash/Edit/Read/Write",
+    "OAuth attribution is a known gap, not an allowed desired normalization"
+  ],
+  "comparison": {
+    "version": "2.1.289",
+    "source": "docs/claude-code-protocol-2026-11-20.md",
+    "status": "unchanged dated report; not rerun here"
+  }
+}

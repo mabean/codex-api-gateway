@@ -11,7 +11,8 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def extract(binary, output, profile_path=PROFILE):
+def read_graph(binary, profile_path=PROFILE):
+    """Return every raw module; positions are byte offsets, never decoded indices."""
     profile = json.loads(Path(profile_path).read_text())
     data = Path(binary).read_bytes()
     if digest(data) != profile['binary_sha256']:
@@ -40,17 +41,30 @@ def extract(binary, output, profile_path=PROFILE):
     size, table, table_size, *_ = struct.unpack_from('<Q6I', data, end-len(trailer)-32)
     if start + size + 32 + len(trailer) != end or table_size % 52 or table+table_size > size:
         raise ValueError('invalid Bun module table')
+    modules = []
+    for index in range(table_size // 52):
+        row = struct.unpack_from('<12I4B', data, start+table+index*52)
+        no, nl, so, sl = row[:4]
+        if max(no+nl, so+sl) > size:
+            raise ValueError('invalid Bun module source bounds')
+        modules.append({'id':index, 'name':data[start+no:start+no+nl].decode(),
+                        'offset':start+so, 'length':sl, 'encoding':row[-4],
+                        'loader':row[-3], 'source':data[start+so:start+so+sl]})
+    return profile, modules
+
+
+def extract(binary, output, profile_path=PROFILE):
+    profile, modules = read_graph(binary, profile_path)
     module = profile['module']
-    if module['id'] >= table_size // 52:
+    if module['id'] >= len(modules):
         raise ValueError('missing required SDK module')
-    row = struct.unpack_from('<12I4B', data, start+table+module['id']*52)
-    no, nl, so, sl = row[:4]
-    if max(no+nl, so+sl) > size or row[-4:-2] != (1, 1):
+    actual = modules[module['id']]
+    if (actual['encoding'], actual['loader']) != (1, 1):
         raise ValueError('invalid required SDK module source')
-    if (data[start+no:start+no+nl].decode() != module['name'] or
-            start+so != module['offset'] or sl != module['length']):
+    if (actual['name'] != module['name'] or actual['offset'] != module['offset'] or
+            actual['length'] != module['length']):
         raise ValueError('missing or relocated required SDK module')
-    source = data[start+so:start+so+sl]
+    source = actual['source']
     if digest(source) != module['sha256']:
         raise ValueError('SDK source fingerprint mismatch')
     output = Path(output)

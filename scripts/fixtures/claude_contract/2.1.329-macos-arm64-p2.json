@@ -1,0 +1,34 @@
+{
+  "version": "2.1.329",
+  "platform": "darwin-arm64",
+  "binary_sha256": "8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550",
+  "ranges": [
+    {
+      "name": "SDK retry decision and delay methods",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "start": 177495,
+      "end": 178435,
+      "sha256": "ca09ce0e42799769a56ae054836068865cf40623098c1f5f3cd8d1ab68c3803f"
+    },
+    {
+      "name": "main turn wire shaper SXn",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "start": 3079373,
+      "end": 3079721,
+      "sha256": "87fe3edc072b4fc438d3e370ff38573dfa3ee5e617ad3cab8e31329bab3620ca"
+    }
+  ],
+  "entrypoints": [
+    "Retry.shouldRetry",
+    "Retry.retryRequest",
+    "Retry.calculateDefaultRetryTimeoutMillis",
+    "SXn"
+  ],
+  "adapters": [
+    "original retry methods in a class wrapper",
+    "Ut records bounded delay; makeRequest counts only; no automatic retry",
+    "SXn receives synthetic conversation/control maps"
+  ]
+}

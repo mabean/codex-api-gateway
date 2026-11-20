@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "baseline_gateway": "cd2276a (P1 4b6ae67 changes diagnostic files only)",
+  "layers": {
+    "tools": "synthetic follow-up through extracted SDK; no native ToolSearch execution",
+    "effort": "original SXn + SDK serialization",
+    "clear_at": "original SXn + SDK serialization",
+    "retry": "original predicates and delay method, actual responses; no SDK transport auto retry",
+    "sse": "SDK event consumer and accumulator",
+    "usage": "full terminal SDK message"
+  },
+  "cases": [
+    {
+      "id": "tools_anthropic_Read",
+      "family": "tools",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "Matched reference and deferred schema preserved",
+      "tool": "Read"
+    },
+    {
+      "id": "tools_anthropic_NotebookEdit",
+      "family": "tools",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "Matched reference and deferred schema preserved",
+      "tool": "NotebookEdit"
+    },
+    {
+      "id": "tools_codex_Read",
+      "family": "tools",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "Reference output empty; Read schema retained; NotebookEdit schema filtered",
+      "tool": "Read"
+    },
+    {
+      "id": "tools_codex_NotebookEdit",
+      "family": "tools",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "Reference output empty; Read schema retained; NotebookEdit schema filtered",
+      "tool": "NotebookEdit"
+    },
+    {
+      "id": "effort_anthropic_nested",
+      "family": "effort",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "Nested high serialized by SXn; Anthropic top-level low survives but nested high disappears; Codex reasoning null or effort-only structured 400",
+      "effort_only": false,
+      "expected_error": false
+    },
+    {
+      "id": "effort_anthropic_only",
+      "family": "effort",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "Nested high serialized by SXn; Anthropic top-level low survives but nested high disappears; Codex reasoning null or effort-only structured 400",
+      "effort_only": true,
+      "expected_error": false
+    },
+    {
+      "id": "effort_codex_nested",
+      "family": "effort",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "Nested high serialized by SXn; Anthropic top-level low survives but nested high disappears; Codex reasoning null or effort-only structured 400",
+      "effort_only": false,
+      "expected_error": false
+    },
+    {
+      "id": "effort_codex_only",
+      "family": "effort",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "Nested high serialized by SXn; Anthropic top-level low survives but nested high disappears; Codex reasoning null or effort-only structured 400",
+      "effort_only": true,
+      "expected_error": true
+    },
+    {
+      "id": "clear_at_anthropic_first",
+      "family": "clear_at",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "SXn places scoped system after assistant; gateway hoists text and loses clear_at in both chronology variants",
+      "followup": false
+    },
+    {
+      "id": "clear_at_anthropic_next",
+      "family": "clear_at",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "SXn places scoped system after assistant; gateway hoists text and loses clear_at in both chronology variants",
+      "followup": true
+    },
+    {
+      "id": "clear_at_codex_first",
+      "family": "clear_at",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "SXn places scoped system after assistant; gateway hoists text and loses clear_at in both chronology variants",
+      "followup": false
+    },
+    {
+      "id": "clear_at_codex_next",
+      "family": "clear_at",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "SXn places scoped system after assistant; gateway hoists text and loses clear_at in both chronology variants",
+      "followup": true
+    },
+    {
+      "id": "retry_anthropic_direct_deny",
+      "family": "retry",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "Direct deny prevents retry; direct allow chooses 125 ms ahead of 9 seconds; gateway loses headers and chooses status/default delay",
+      "direct": true,
+      "allow": false
+    },
+    {
+      "id": "retry_anthropic_direct_allow",
+      "family": "retry",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "Direct deny prevents retry; direct allow chooses 125 ms ahead of 9 seconds; gateway loses headers and chooses status/default delay",
+      "direct": true,
+      "allow": true
+    },
+    {
+      "id": "retry_anthropic_gateway_deny",
+      "family": "retry",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "Direct deny prevents retry; direct allow chooses 125 ms ahead of 9 seconds; gateway loses headers and chooses status/default delay",
+      "direct": false,
+      "allow": false
+    },
+    {
+      "id": "retry_anthropic_gateway_allow",
+      "family": "retry",
+      "route": "anthropic",
+      "expected_outcome": "known_gap",
+      "expected": "Direct deny prevents retry; direct allow chooses 125 ms ahead of 9 seconds; gateway loses headers and chooses status/default delay",
+      "direct": false,
+      "allow": true
+    },
+    {
+      "id": "sse_anthropic_barrier",
+      "family": "sse",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "SDK delta before terminal release on forwarding control; absent while closed on buffered Codex; eventual terminal text required"
+    },
+    {
+      "id": "sse_codex_barrier",
+      "family": "sse",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "SDK delta before terminal release on forwarding control; absent while closed on buffered Codex; eventual terminal text required"
+    },
+    {
+      "id": "usage_anthropic_nonzero",
+      "family": "usage",
+      "route": "anthropic",
+      "expected_outcome": "correct_behavior",
+      "expected": "Terminal SDK usage 17 input and 11 output plus cache 5/3 on Anthropic; known Codex zeros despite nonzero upstream"
+    },
+    {
+      "id": "usage_codex_nonzero",
+      "family": "usage",
+      "route": "codex",
+      "expected_outcome": "known_gap",
+      "expected": "Terminal SDK usage 17 input and 11 output plus cache 5/3 on Anthropic; known Codex zeros despite nonzero upstream"
+    }
+  ]
+}
