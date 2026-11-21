@@ -2,6 +2,8 @@
 
 Status: P2 baseline diagnostics, prepared for review. P3–P5 criteria are mapped below and do not pass by virtue of this inventory. Source: local official Claude Code 2.1.329 macOS arm64, binary SHA-256 `8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550`, gateway baseline `cd2276a`, unchanged production source in P1 `4b6ae67`.
 
+P3 update, 2026-11-21: the descriptions below remain the frozen P2 baseline. The [separate P3 verification](claude-code-p3-verification-2026-11-21.md) records the direct Anthropic repairs and positive extracted tests for P3-AC1–3, including original SDK retry recursion, controlled context rejection/removal and countTokens. P2 known-gap assertions must run against the preserved baseline, not the repaired gateway. The [P3 range manifest](../scripts/fixtures/claude_contract/2.1.329-macos-arm64-p3.json) identifies its additional executed byte spans. This update makes no P4/P5 acceptance claim.
+
 The [structured inventory](../scripts/fixtures/claude_contract/p2_inventory.json) uses stable `records[].id` and `spans[].id` anchors. The runner checks all span hashes directly against raw module bytes; positions are half-open byte ranges, relative to the module, with absolute binary starts recorded separately. No decoded character offsets or reformatted scratch sources are used. The full Bun table contains 3,657 records; the scan examines every JavaScript module for all listed base-URL, endpoint and transport markers. Marker hits are candidates, not proof of reachable invocation. The [unchanged dated comparison report](claude-code-protocol-2026-11-20.md) supplies the 2.1.289 comparison; that earlier CLI/mock evidence was not rerun as part of P2.
 
 ## Evidence levels and limits

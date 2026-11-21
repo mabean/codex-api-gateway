@@ -15,6 +15,7 @@ This project originally started from [Securiteru/codex-openai-proxy](https://git
 | `POST /v1/responses` | OpenAI Responses-compatible requests through the Codex/ChatGPT backend |
 | `POST /v1/chat/completions` | OpenAI Chat Completions-compatible requests through the Codex/ChatGPT backend |
 | `POST /v1/messages` | Anthropic Messages-compatible requests, routed by model family |
+| `POST /v1/messages/count_tokens` | Direct Anthropic token counts; Codex returns a structured 404 for client estimation |
 | `GET /v1/models` | Models advertised by the gateway |
 | `GET /health` | Local process health |
 
@@ -108,6 +109,8 @@ GPT ingress on all three endpoints uses the upstream Responses protocol, includi
 For GPT-6.2 Astra, GPT-6.2 Sol, GPT-6 Astra, and GPT-6.1 Sol, use `low` or higher reasoning effort. GPT-6.1 Terra, GPT-6 Sol, and GPT-6 Luna accept `none`. See the [official GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model).
 
 Anthropic requests preserve top-level fields such as `thinking`, `tool_choice`, and `output_config`. For Fable 5.2, Fable 5.1, Opus 5.5, and Sonnet 5.5, use `tool_choice: {"type":"auto"}` or `{"type":"none"}`. Fable 5.2, Fable 5.1, and Opus 5.5 require adaptive thinking. Sonnet 5.5 also accepts `between_tools` at `high` effort or below. See [Anthropic thinking documentation](https://platform.claude.com/docs/en/build-with-claude/thinking) and the [Fable 5.2 migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide).
+
+The direct Anthropic route also preserves nested message fields, scoped system entries, `clear_at`, cache markers and tool references in their original array order. It forwards `?beta=true`, the client version and beta flags, status, response bytes and streamed bodies. Response metadata is limited to content type, retry headers, request ID and `anthropic-ratelimit-unified-*`, excluding headers nominated by `Connection`. Existing model aliases, `[gateway-model: ...]` removal, Agent routing instructions and credential precedence still apply. OAuth Messages retain client-supplied attribution; the legacy prefix is used only when attribution is absent. OAuth token-count requests receive no Messages prompt prefix. These are local forwarding guarantees; upstream support for individual beta features remains provider-dependent. See [P3 verification](docs/claude-code-p3-verification-2026-11-21.md).
 
 Claude aliases default to:
 

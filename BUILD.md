@@ -84,4 +84,40 @@ The runner verifies full-graph marker hits and raw-byte source ranges before exe
 
 The printed temporary evidence directory contains manifests, source ranges, synthetic request observations and structured outcomes; keep extracted modules and raw traces local. The [dated inventory](docs/claude-code-contract-inventory-2026-11-20.md) links the structured anchors and maps all nine future P3–P5 acceptance criteria, including unresolved provider conditions. P2 diagnostic success establishes the baseline, not repaired compatibility or live acceptance. The full CI baseline above and P1 command remain required checks.
 
+P2 is a historical known-gap suite: after the P3 forwarding repair, run it only with a preserved pre-repair binary. Its old-gap expectations intentionally fail against repaired behavior. Use the positive P3 suite below for the current direct Anthropic contract; do not weaken P2 assertions.
+
 `--fail-after-start` deliberately fails after starting owned services to verify failure cleanup; expect exit 1 and `owned_ports_closed`, `owned_process_cleanup`, and `unrelated_listener_alive` all true. Both normal and failure paths stop only this run's processes; no process-name matching or port-wide cleanup is used. Every isolated worker has a deadline and an owned process group for timeout cleanup.
+
+## Offline positive Anthropic forwarding contract (P3)
+
+Prebuild with `cargo build --release --locked --offline`, then use the same local Node and pinned official Claude Code binary as P1. The suite downloads nothing and makes no live/model calls:
+
+```bash
+python3 -B scripts/claude_contract_p3.py --binary /opt/homebrew/bin/claude --gateway target/release/codex-api-gateway
+python3 -B -m unittest discover -s scripts -p 'test_claude_contract_p3.py'
+```
+
+All fifteen positive cases are mandatory. A failed expectation, missing case, unknown fingerprint or unavailable function exits nonzero. The runner collects case failures while requiring every case to pass. For a before/after repair comparison, pass an immutable pre-repair release binary using `--gateway`; its SHA-256 is recorded separately from the pinned client fingerprint. Preserve substantive failures as baseline evidence, never classify them as repaired success.
+
+The original SDK `makeRequest`, `shouldRetry` and `retryRequest` execute actual repeated localhost HTTP. The time adapter records bounded delay without sleeping; transport preparation and logging are adapters. Context rejection uses original predicates, regex, removal closure and field-gate expression with a controlled beta registry and disabled unrelated feature hooks. It does not execute the full main request loop. Token counts execute original `zi.countTokens`; the Codex 404 fallback is documented from the original main-client source, without invoking its quota-consuming sample fallback. Every outcome records its executed layer, path, expectation, received request/response and result. The [P3 verification](docs/claude-code-p3-verification-2026-11-21.md) lists exact layers and remaining limits.
+
+Failure cleanup can be checked with the following wrapper. The child must exit 1, print its evidence directory first, write `result.json`, emit an error on stderr and preserve the unrelated listener:
+
+```bash
+python3 -B - <<'PY'
+import json, pathlib, subprocess
+cmd = ['python3', '-B', 'scripts/claude_contract_p3.py', '--binary', '/opt/homebrew/bin/claude',
+       '--gateway', 'target/release/codex-api-gateway', '--fail-after-start']
+p = subprocess.run(cmd, text=True, capture_output=True, timeout=120)
+print(p.stdout, end='')
+print(p.stderr, end='')
+assert p.returncode == 1 and p.stderr.strip()
+assert p.stdout.splitlines()[0].startswith('local evidence: ')
+directory = pathlib.Path(p.stdout.splitlines()[0].removeprefix('local evidence: '))
+result = json.loads((directory / 'result.json').read_text())
+assert 'intentional' in result.get('error', '').lower()
+assert all(result.get(k) is True for k in ('owned_process_cleanup', 'owned_ports_closed', 'unrelated_listener_alive'))
+PY
+```
+
+Normal and intentional failure runs use synthetic credentials, temporary profiles, protected-file/OS network probes, explicit loopback upstreams, redirect rejection and owned process cleanup. Extracted proprietary code and traces stay in the printed local temporary directory. P1 and the complete CI baseline remain required. Dependency-age metadata access is a separate best-effort check.

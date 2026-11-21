@@ -1706,13 +1706,20 @@ impl ProxyServer {
         &self,
         body: bytes::Bytes,
         inbound_headers: &warp::http::HeaderMap,
+        path: &str,
+        query: &str,
     ) -> Result<UpstreamHttpResponse, ProxyError> {
         let body = normalize_anthropic_request_model(&body)?;
+        // Only the supported beta query is forwarded; the upstream origin and
+        // endpoint remain configuration-owned.
+        let beta_query = query.split('&').any(|pair| pair == "beta=true");
         let mut request_builder = self
             .client
             .post(format!(
-                "{}/v1/messages",
-                self.anthropic_upstream_base_url.trim_end_matches('/')
+                "{}{}{}",
+                self.anthropic_upstream_base_url.trim_end_matches('/'),
+                path,
+                if beta_query { "?beta=true" } else { "" }
             ))
             .header("Content-Type", "application/json");
 
@@ -1751,7 +1758,11 @@ impl ProxyServer {
                     )
                     .header("anthropic-client-platform", "claude_code_cli")
                     .header("x-app", "cli");
-                let body = apply_claude_code_oauth_system_prompt(&body)?;
+                let body = if path == "/v1/messages" {
+                    apply_claude_code_oauth_system_prompt(&body)?
+                } else {
+                    body
+                };
                 return self
                     .send_anthropic_upstream_request(request_builder, body)
                     .await;
@@ -1798,12 +1809,7 @@ impl ProxyServer {
             })?;
         let header_elapsed_ms = started.elapsed().as_millis();
         let status = response.status();
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("application/json")
-            .to_string();
+        let headers = anthropic_response_headers(response.headers());
         log::warn!(
             "[anthropic-upstream-response-status] {} header_elapsed_ms={}",
             status,
@@ -1851,7 +1857,7 @@ impl ProxyServer {
         };
         Ok(UpstreamHttpResponse {
             status,
-            content_type,
+            headers,
             body,
         })
     }
@@ -1859,8 +1865,39 @@ impl ProxyServer {
 
 struct UpstreamHttpResponse {
     status: StatusCode,
-    content_type: String,
+    headers: warp::http::HeaderMap,
     body: warp::hyper::Body,
+}
+
+fn anthropic_response_headers(upstream: &warp::http::HeaderMap) -> warp::http::HeaderMap {
+    let nominated: Vec<String> = upstream
+        .get_all("connection")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(|name| name.trim().to_ascii_lowercase())
+        .collect();
+    let mut headers = warp::http::HeaderMap::new();
+    for (name, value) in upstream {
+        let key = name.as_str();
+        let allowed = matches!(
+            key,
+            "content-type" | "retry-after" | "retry-after-ms" | "x-should-retry" | "request-id"
+        ) || key.starts_with("anthropic-ratelimit-unified-");
+        if allowed && !nominated.iter().any(|excluded| excluded == key) {
+            headers.append(name.clone(), value.clone());
+        }
+    }
+    headers
+}
+
+impl UpstreamHttpResponse {
+    fn into_response(self) -> warp::reply::Response {
+        let mut response = warp::reply::Response::new(self.body);
+        *response.status_mut() = self.status;
+        *response.headers_mut() = self.headers;
+        response
+    }
 }
 
 fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, ProxyError> {
@@ -2191,6 +2228,64 @@ fn prepare_anthropic_ingress(
     (directive_model, route)
 }
 
+// The direct route must not round-trip through AnthropicMessage: that type is
+// deliberately narrower than the upstream protocol used for scoped controls.
+fn prepare_anthropic_passthrough(
+    body: &[u8],
+    messages_endpoint: bool,
+) -> Result<(bytes::Bytes, AnthropicModelRoute), ProxyError> {
+    let mut payload: Value = serde_json::from_slice(body).map_err(ProxyError::invalid_json)?;
+    let object = payload
+        .as_object_mut()
+        .ok_or_else(|| ProxyError::Validation {
+            message: "Anthropic request body must be a JSON object".to_string(),
+            field: None,
+        })?;
+    let mut directive = None;
+    if messages_endpoint {
+        if let Some(messages) = object.get_mut("messages").and_then(Value::as_array_mut) {
+            for message in messages {
+                if message.get("role").and_then(Value::as_str) == Some("system") {
+                    continue;
+                }
+                if let Some(content) = message.get_mut("content") {
+                    directive = strip_gateway_model_directive_from_content(content);
+                    if directive.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(model) = directive {
+        object.insert("model".to_string(), Value::String(model));
+    }
+    let model =
+        object
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ProxyError::Validation {
+                message: "model must be a string".to_string(),
+                field: Some("model".to_string()),
+            })?;
+    let route = route_anthropic_model(model);
+    if messages_endpoint && route == AnthropicModelRoute::Anthropic {
+        let has_agent = object
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| anthropic_tools_include_agent(Some(tools)));
+        if has_agent {
+            let system = append_gateway_agent_instruction(object.remove("system"));
+            object.insert("system".to_string(), system);
+        }
+    }
+    serde_json::to_vec(&payload)
+        .map(|body| (bytes::Bytes::from(body), route))
+        .map_err(|error| ProxyError::UpstreamProtocol {
+            message: format!("failed to serialize Anthropic request payload: {error}"),
+        })
+}
+
 fn resolve_gateway_model_alias(model: &str) -> Option<String> {
     let short = model.rsplit('/').next().unwrap_or(model).to_lowercase();
     let (env_name, default_target) = match short.as_str() {
@@ -2415,6 +2510,21 @@ fn apply_claude_code_oauth_system_prompt(body: &[u8]) -> Result<bytes::Bytes, Pr
     };
 
     let existing_system = obj.remove("system");
+    // Current clients already supply their own attribution. Keep that original
+    // block, its cache marker and position; the legacy prefix is a fallback.
+    let has_attribution = match &existing_system {
+        Some(Value::String(text)) => text.starts_with("x-anthropic-billing-header:"),
+        Some(Value::Array(blocks)) => blocks.iter().any(|block| {
+            block
+                .get("text")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.starts_with("x-anthropic-billing-header:"))
+        }),
+        _ => false,
+    };
+    if has_attribution {
+        return Ok(bytes::Bytes::copy_from_slice(body));
+    }
     let mut system_blocks = vec![
         text_system_block(claude_code_oauth_billing_header_text()),
         text_system_block(claude_code_system_text()),
@@ -3124,6 +3234,7 @@ async fn main() -> Result<()> {
     let universal_handler = warp::any()
         .and(warp::method())
         .and(warp::path::full())
+        .and(warp::query::raw().or(warp::any().map(String::new)).unify())
         .and(warp::header::headers_cloned())
         .and(warp::body::bytes())
         .and(proxy_filter.clone())
@@ -3154,6 +3265,7 @@ async fn main() -> Result<()> {
 async fn universal_request_handler(
     method: warp::http::Method,
     path: warp::path::FullPath,
+    query: String,
     headers: warp::http::HeaderMap,
     body: bytes::Bytes,
     proxy: ProxyServer,
@@ -3217,14 +3329,39 @@ async fn universal_request_handler(
                 }
             }
         }
-        ("POST", "/v1/messages") => {
+        ("POST", "/v1/messages") | ("POST", "/v1/messages/count_tokens") => {
+            let count_tokens = path_str == "/v1/messages/count_tokens";
+            let (upstream_body, direct_route) =
+                match prepare_anthropic_passthrough(&body, !count_tokens) {
+                    Ok(prepared) => prepared,
+                    Err(error) => return Ok(anthropic_error_response(error)),
+                };
+            if count_tokens {
+                return Ok(if direct_route == AnthropicModelRoute::Anthropic {
+                    match proxy
+                        .proxy_anthropic_upstream_request(upstream_body, &headers, path_str, &query)
+                        .await
+                    {
+                        Ok(response) => response.into_response(),
+                        Err(error) => anthropic_error_response(error),
+                    }
+                } else {
+                    // The client's count API error path returns to its local
+                    // estimate. A 501 would activate model sampling instead.
+                    not_found_response(ApiFamily::Anthropic)
+                });
+            }
             let mut anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body)
             {
                 Ok(req) => req,
                 Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
             };
             let requested_model = anthropic_req.model.clone();
-            let (directive_model, route) = prepare_anthropic_ingress(&mut anthropic_req);
+            let (directive_model, route) = if direct_route == AnthropicModelRoute::Anthropic {
+                (None, direct_route)
+            } else {
+                prepare_anthropic_ingress(&mut anthropic_req)
+            };
             log::warn!(
                 "[anthropic-route] model={} effective_model={} route={}",
                 requested_model,
@@ -3235,42 +3372,11 @@ async fn universal_request_handler(
                 }
             );
             if route == AnthropicModelRoute::Anthropic {
-                let upstream_body = match serde_json::to_vec(&anthropic_req) {
-                    Ok(body) => bytes::Bytes::from(body),
-                    Err(err) => {
-                        return Ok(anthropic_error_response(ProxyError::UpstreamProtocol {
-                            message: format!(
-                                "failed to serialize Anthropic request payload: {}",
-                                err
-                            ),
-                        }))
-                    }
-                };
                 match proxy
-                    .proxy_anthropic_upstream_request(upstream_body, &headers)
+                    .proxy_anthropic_upstream_request(upstream_body, &headers, path_str, &query)
                     .await
                 {
-                    Ok(upstream_response) => warp::http::Response::builder()
-                        .status(upstream_response.status)
-                        .header("content-type", upstream_response.content_type)
-                        .body(upstream_response.body)
-                        .unwrap_or_else(|err| {
-                            warp::http::Response::builder()
-                                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                .header("content-type", "application/json")
-                                .body(warp::hyper::Body::from(
-                                    json!({
-                                        "type": "error",
-                                        "error": {
-                                            "type": "api_error",
-                                            "message": format!("failed to build upstream response: {err}")
-                                        }
-                                    })
-                                    .to_string(),
-                                ))
-                                .expect("static error response is valid")
-                        })
-                        .into_response(),
+                    Ok(upstream_response) => upstream_response.into_response(),
                     Err(err) => anthropic_error_response(err),
                 }
             } else {

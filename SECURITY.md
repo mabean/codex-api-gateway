@@ -31,6 +31,8 @@ Live verification scripts enable gateway verbose mode by default. See [BUILD.md]
 
 The process listens on localhost and connects to the configured Codex/ChatGPT and Anthropic upstreams. Changing either upstream base URL changes the trust boundary: the new destination may receive authentication headers and user content.
 
+The direct Anthropic Messages and count-tokens routes share credential resolution and the configured upstream origin. Only the supported `beta=true` query is forwarded. Upstream responses expose an allowlist: `content-type`, `Retry-After`, `retry-after-ms`, `x-should-retry`, `request-id` and `anthropic-ratelimit-unified-*`. `Connection`-nominated headers are excluded even when otherwise allowed. Cookies, arbitrary upstream headers and hop-by-hop headers are not relayed. Direct JSON fidelity preserves client fields without treating their content as gateway configuration. OAuth attribution is preserved when supplied; count-tokens does not receive a synthetic Messages prompt.
+
 ## Security-relevant changes
 
 Treat a change as security-sensitive if it:
@@ -49,3 +51,5 @@ Such changes should include an updated threat assessment and tests for secret ha
 The P1 harness reads a fingerprint-pinned local Claude Code binary without invoking it, extracts only declared SDK source ranges into temporary storage, and executes those ranges in Node. This is local verification of the SDK layer, not a general-purpose sandbox for unknown executables. It requires macOS `sandbox-exec` and refuses an unconfined fallback. The worker, gateway, Node transport and fixture inherit an OS loopback-only network policy. Both gateway upstreams are explicit local fixture URLs. Node rejects redirects and destinations outside its exact local gateway origin.
 
 Children receive a minimal environment, temporary HOME/config/auth/log paths, and synthetic credentials. The policy denies the actual user's credential directories, keychain files, `/usr/bin/security`, and the securityd lookup. A protected synthetic file proves file-read denial without opening a real credential. A numeric TEST-NET connect must fail with OS `EPERM`; timeout/refusal does not count as isolation. Temporary source and diagnostic logs stay local. See [P1 verification](docs/claude-code-p1-verification-2026-11-20.md).
+
+The [P3 runner](scripts/claude_contract_p3.py) extends that boundary to fingerprinted retry orchestration and bounded context-rejection seams. It additionally disables gateway keychain lookup using the supported environment control. All OAuth/API credentials are synthetic; neither real token refresh nor provider entitlement is tested. See [the P3 evidence and adapter limits](docs/claude-code-p3-verification-2026-11-21.md).

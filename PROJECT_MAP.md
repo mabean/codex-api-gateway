@@ -15,6 +15,7 @@ Use this index to find documentation and implementation entrypoints. Open only t
 | Review earlier local approval, live results, and remaining blockers | [2026-10-05 verification](docs/model-verification-2026-10-05.md) |
 | Review Claude Code 2.1.289 request changes and mock compatibility | [2026-10-05 protocol comparison](docs/claude-code-protocol-2026-10-05.md) |
 | Run the offline extracted Claude Code SDK contract and inspect its limits | [P1 verification](docs/claude-code-p1-verification-2026-11-20.md), [runner](scripts/claude_contract_p1.py) |
+| Verify direct Anthropic forwarding, original SDK retries and count-tokens offline | [P3 verification](docs/claude-code-p3-verification-2026-11-21.md), [runner](scripts/claude_contract_p3.py), [positive cases](scripts/fixtures/claude_contract/p3_cases.json) |
 | Inspect the pinned Claude Code contract and reproduce six baseline diagnostic families | [P2 inventory](docs/claude-code-contract-inventory-2026-11-20.md), [structured records and byte spans](scripts/fixtures/claude_contract/p2_inventory.json), [runner](scripts/claude_contract_p2.py), [dated comparison](docs/claude-code-protocol-2026-11-20.md) |
 | Contribute changes with a coding agent | [AGENTS.md](AGENTS.md) |
 

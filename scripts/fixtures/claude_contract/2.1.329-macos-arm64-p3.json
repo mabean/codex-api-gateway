@@ -1,0 +1,83 @@
+{
+  "version": "2.1.329",
+  "platform": "darwin-arm64",
+  "binary_sha256": "8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550",
+  "ranges": [
+    {
+      "name": "makeRequest",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 173473,
+      "end": 176239,
+      "binary_start": 292820966,
+      "sha256": "3b38068b896094d9491507de6d256a5a86692c51d69448afeb9b8c0c88f7e6a7"
+    },
+    {
+      "name": "retry",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "start": 177495,
+      "end": 178435,
+      "binary_start": 292824988,
+      "sha256": "ca09ce0e42799769a56ae054836068865cf40623098c1f5f3cd8d1ab68c3803f"
+    },
+    {
+      "name": "turn",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3079373,
+      "end": 3079721,
+      "binary_start": 300473652,
+      "sha256": "87fe3edc072b4fc438d3e370ff38573dfa3ee5e617ad3cab8e31329bab3620ca"
+    },
+    {
+      "name": "rejection",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 2239399,
+      "end": 2240158,
+      "binary_start": 299633678,
+      "sha256": "d8cab908d7181d7e517f74270cd0193c3f342cf6a18aeb62a9bc7cf71af95698"
+    },
+    {
+      "name": "contextRemoval",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3223688,
+      "end": 3224206,
+      "binary_start": 300617967,
+      "sha256": "4f0b574297aef38e978df2f0a2eeab0f1cd5c8bddf647902a4bbee54cc330de1"
+    },
+    {
+      "name": "contextGate",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 3202055,
+      "end": 3202104,
+      "binary_start": 300596334,
+      "sha256": "f8604c1d818ae0f1091e8b91af8cf34e9f61aafadbc04221e4fcc1555c08a885"
+    },
+    {
+      "name": "rejectionRegex",
+      "module_id": 720,
+      "module": "/$bunfs/root/chunk-hg1yqkjk.js",
+      "module_sha256": "1736864e9102342fcc572d9a9b3c56f0b620211f0e066f512be1e0551666a7aa",
+      "start": 2239321,
+      "end": 2239398,
+      "binary_start": 299633600,
+      "sha256": "7dd8c6e4fb3ce2ce4ce2fd3830e420c14ca4557e10ea9f3250e8948b5b5ab75a"
+    }
+  ],
+  "adapters": [
+    "SDK transport/request preparation and logging shims; original makeRequest retry recursion",
+    "Ut records bounded delay without sleeping",
+    "Original rejection predicates and removal closure; controlled beta registry, non-context hooks disabled",
+    "Original field gate evaluated with current remaining beta registry; no full CLI loop"
+  ]
+}

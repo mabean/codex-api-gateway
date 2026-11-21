@@ -46,6 +46,12 @@ Public hosting, shared credentials, multi-user isolation, and untrusted local cl
 
 Any proposal to expose the service beyond localhost requires a new threat review, downstream authentication, authorization, rate limiting, and secret-isolation design.
 
+## P3 direct Anthropic forwarding boundary (2026-11-21)
+
+Messages and token counts use the same configured Anthropic origin and existing credential precedence. The additional endpoint cannot select an outbound origin. The supported beta query is allowlisted. Preserving original JSON retains scoped system and tool semantics while allowing the upstream to validate provider-specific fields. Model aliases, gateway directives and Agent instructions remain intentional gateway changes. OAuth Messages preserve the caller's attribution rather than inserting an older duplicate; count requests receive no prompt augmentation.
+
+Response status/body/streaming and an explicit metadata allowlist are forwarded. Arbitrary upstream headers and `Connection` nominations are excluded, including nominated rate-limit metadata. Retry decisions remain in the client; forwarded retry headers can cause repeated requests within its configured retry limit. The offline P3 test executes original SDK retry recursion, matcher/removal and field-gating code under controlled seams and OS isolation. It does not prove real provider beta support, real OAuth, complete CLI dialogue behavior or live acceptance. See [P3 verification](docs/claude-code-p3-verification-2026-11-21.md).
+
 ## P1 extracted SDK verification boundary (2026-11-20)
 
 The optional offline P1 runner executes a bounded unchanged SDK source closure from one SHA-256-pinned official `2.1.329` macOS arm64 binary. Extraction validates Mach-O/Bun bounds, module identity and per-range hashes before Node loads it. Unknown binaries fail closed. Explicit loading shims provide imported error classes, abort classification, one stream-helper constant and throwing sentinels for unused SDK imports; transport is a Node fetch adapter. The SDK constructs the Messages request and parses/accumulates SSE. No claim is made about the main Claude Code parser or its retry/dialogue decisions.

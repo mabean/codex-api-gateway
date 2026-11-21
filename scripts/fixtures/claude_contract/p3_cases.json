@@ -1,0 +1,101 @@
+{
+  "status": "mandatory positive P3 controls",
+  "cases": [
+    {
+      "id": "fidelity_key_first",
+      "family": "fidelity",
+      "auth": "key",
+      "followup": false,
+      "expected": "Complete SDK JSON except canonical model; original system/message order, scoped controls, cache and tool references; one first attribution on both credential paths"
+    },
+    {
+      "id": "fidelity_key_followup",
+      "family": "fidelity",
+      "auth": "key",
+      "followup": true,
+      "expected": "Complete SDK JSON except canonical model; original system/message order, scoped controls, cache and tool references; one first attribution on both credential paths"
+    },
+    {
+      "id": "fidelity_oauth_first",
+      "family": "fidelity",
+      "auth": "oauth",
+      "followup": false,
+      "expected": "Complete SDK JSON except canonical model; original system/message order, scoped controls, cache and tool references; one first attribution on both credential paths"
+    },
+    {
+      "id": "fidelity_oauth_followup",
+      "family": "fidelity",
+      "auth": "oauth",
+      "followup": true,
+      "expected": "Complete SDK JSON except canonical model; original system/message order, scoped controls, cache and tool references; one first attribution on both credential paths"
+    },
+    {
+      "id": "retry_deny",
+      "family": "retry",
+      "allow": false,
+      "ms": 125,
+      "seconds": 9,
+      "expected": "Original SDK makeRequest retries actual HTTP only when allowed, with retry-after-ms winning over Retry-After"
+    },
+    {
+      "id": "retry_allow_short",
+      "family": "retry",
+      "allow": true,
+      "ms": 125,
+      "seconds": 9,
+      "expected": "Original SDK makeRequest retries actual HTTP only when allowed, with retry-after-ms winning over Retry-After"
+    },
+    {
+      "id": "retry_allow_long",
+      "family": "retry",
+      "allow": true,
+      "ms": 275,
+      "seconds": 1,
+      "expected": "Original SDK makeRequest retries actual HTTP only when allowed, with retry-after-ms winning over Retry-After"
+    },
+    {
+      "id": "context_reject",
+      "family": "context",
+      "reject": true,
+      "expected": "Original rejection/removal retries named context refusal once without context field/beta, retains other beta; unrelated 400 does not retry"
+    },
+    {
+      "id": "context_unrelated",
+      "family": "context",
+      "reject": false,
+      "expected": "Original rejection/removal retries named context refusal once without context field/beta, retains other beta; unrelated 400 does not retry"
+    },
+    {
+      "id": "count_key",
+      "family": "count",
+      "auth": "key",
+      "expected": "Original zi.countTokens forwards canonical model, beta query and matching auth, returns input_tokens 37 without OAuth prompt insertion"
+    },
+    {
+      "id": "count_oauth",
+      "family": "count",
+      "auth": "oauth",
+      "expected": "Original zi.countTokens forwards canonical model, beta query and matching auth, returns input_tokens 37 without OAuth prompt insertion"
+    },
+    {
+      "id": "count_codex",
+      "family": "unsupported",
+      "expected": "Structured Codex count 404 and zero upstream requests; original client fallback is static evidence only"
+    },
+    {
+      "id": "json_messages",
+      "family": "json",
+      "expected": "Ordinary SDK Messages JSON returns exact terminal content"
+    },
+    {
+      "id": "sse_barrier",
+      "family": "sse",
+      "expected": "Original SDK decodes first text while terminal barrier remains closed, then exact terminal text, reason and usage"
+    },
+    {
+      "id": "catalog",
+      "family": "catalog",
+      "expected": "Local catalog still advertises Claude and GPT models, without upstream traffic"
+    }
+  ]
+}

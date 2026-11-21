@@ -17,6 +17,92 @@ use crate::{
 };
 
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn direct_anthropic_preserves_scoped_controls_and_extensions() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+    let body = serde_json::json!({
+        "model":"haiku", "max_tokens":32,
+        "system":[{"type":"text","text":"x-anthropic-billing-header: current;","cache_control":{"type":"ephemeral"}}],
+        "output_config":{"effort":"low"},
+        "messages":[{"role":"user","content":"first","future_field":{"preserve":true}},
+          {"role":"system","content":[],"output_config":{"effort":"high"}},
+          {"role":"system","content":[{"type":"text","text":"scoped"}],"clear_at":"next_user_message"},
+          {"role":"user","content":"next"}],
+        "future_top_level":[1,2,3]
+    });
+    let (encoded, route) =
+        crate::prepare_anthropic_passthrough(&serde_json::to_vec(&body).unwrap(), true).unwrap();
+    assert_eq!(route, AnthropicModelRoute::Anthropic);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&encoded).unwrap(),
+        body
+    );
+    let oauth = apply_claude_code_oauth_system_prompt(&encoded).unwrap();
+    assert_eq!(oauth, encoded);
+    clear_alias_env();
+}
+
+#[test]
+fn direct_anthropic_keeps_agent_and_directive_behavior_without_hoisting() {
+    let _guard = ALIAS_ENV_LOCK.lock().unwrap();
+    clear_alias_env();
+    let body = serde_json::json!({"model":"gpt-6.2-sol", "tools":[{"name":"Agent"}],
+        "messages":[{"role":"user","content":"[gateway-model: haiku]\nkeep"},
+                    {"role":"system","content":"scoped","clear_at":"next_user_message"}]});
+    let (encoded, route) =
+        crate::prepare_anthropic_passthrough(&serde_json::to_vec(&body).unwrap(), true).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(route, AnthropicModelRoute::Anthropic);
+    assert_eq!(value["model"], "haiku");
+    assert_eq!(value["messages"][0]["content"], "keep");
+    assert_eq!(value["messages"][1], body["messages"][1]);
+    assert!(value["system"]
+        .as_str()
+        .unwrap()
+        .contains("Gateway model routing for Agent"));
+    let (count, _) =
+        crate::prepare_anthropic_passthrough(&serde_json::to_vec(&body).unwrap(), false).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&count).unwrap(),
+        body
+    );
+    clear_alias_env();
+}
+
+#[test]
+fn anthropic_headers_allow_metadata_but_exclude_connection_nominations() {
+    let mut upstream = warp::http::HeaderMap::new();
+    for (name, value) in [
+        ("content-type", "text/event-stream"),
+        ("retry-after", "9"),
+        ("retry-after-ms", "125"),
+        ("x-should-retry", "false"),
+        ("request-id", "req_test"),
+        ("anthropic-ratelimit-unified-status", "allowed"),
+        (
+            "connection",
+            "close, Request-ID, anthropic-ratelimit-unified-hidden",
+        ),
+        ("anthropic-ratelimit-unified-hidden", "private"),
+        ("set-cookie", "private"),
+        ("transfer-encoding", "chunked"),
+        ("x-private", "private"),
+    ] {
+        upstream.insert(
+            warp::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+            value.parse().unwrap(),
+        );
+    }
+    let headers = crate::anthropic_response_headers(&upstream);
+    assert_eq!(headers.len(), 5);
+    assert_eq!(headers["retry-after-ms"], "125");
+    assert_eq!(headers["retry-after"], "9");
+    assert_eq!(headers["x-should-retry"], "false");
+    assert_eq!(headers["content-type"], "text/event-stream");
+    assert_eq!(headers["anthropic-ratelimit-unified-status"], "allowed");
+}
 const ALIAS_ENV_KEYS: &[&str] = &[
     "CODEX_GATEWAY_ALIAS_SONNET",
     "CODEX_GATEWAY_ALIAS_OPUS",
