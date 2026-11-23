@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {"id":"text","criterion":"C1-AC1","expected":"decoded UTF-8 multiline CRLF delta before terminal barrier; exact native bytes"},
+    {"id":"tool","criterion":"C1-AC1","expected":"decoded argument fragment with call_id before terminal barrier; exact native bytes"},
+    {"id":"completed_hold","criterion":"C1-AC3","expected":"one completed, downstream ends and upstream closes without EOF"},
+    {"id":"done_completed","criterion":"C1-AC3","expected":"legacy done normalized to completed preserving payload"},
+    {"id":"done_incomplete","criterion":"C1-AC3","expected":"legacy done normalized to incomplete preserving payload"},
+    {"id":"done_failed","criterion":"C1-AC3","expected":"legacy done normalized to failed preserving payload"},
+    {"id":"incomplete","criterion":"C1-AC3","expected":"native incomplete and payload preserved"},
+    {"id":"failed","criterion":"C1-AC3","expected":"native failed and payload preserved"},
+    {"id":"error","criterion":"C1-AC3","expected":"native error preserved without successful completion"},
+    {"id":"eof","criterion":"C1-AC2","expected":"explicit error after committed delta, no retry"},
+    {"id":"malformed","criterion":"C1-AC3","expected":"malformed JSON rejected with explicit error"},
+    {"id":"contradiction","criterion":"C1-AC3","expected":"contradictory terminal status rejected"},
+    {"id":"event_mismatch","criterion":"C1-AC3","expected":"contradictory SSE event/type rejected"},
+    {"id":"bad_done","criterion":"C1-AC3","expected":"nonterminal legacy status rejected"},
+    {"id":"limit","criterion":"C1-AC3","expected":"frame over 1 MiB rejected after commitment"},
+    {"id":"timeout","criterion":"C1-AC3","expected":"configured total deadline emits explicit error without retry after commitment"},
+    {"id":"disconnect","criterion":"C1-AC2","expected":"downstream drop closes upstream within deadline"},
+    {"id":"retry","criterion":"C1-AC2","expected":"503 before commitment retried once, then success"},
+    {"id":"exhaustion","criterion":"C1-AC2","expected":"two 503 attempts exhaust configured retry budget with HTTP error"},
+    {"id":"precommit_retry","criterion":"C1-AC2","expected":"C1-R1: truncated Content-Length is a 502 protocol error after one attempt, matching baseline"},
+    {"id":"eof_terminal","criterion":"C1-AC3","expected":"C1-R2: complete terminal with one newline is accepted and completed with a blank boundary"},
+    {"id":"eof_terminal_no_newline","criterion":"C1-AC3","expected":"C1-R2: complete terminal without last newline is accepted with missing boundary appended"},
+    {"id":"eof_missing_terminal","criterion":"C1-AC3","expected":"C1-R2: EOF final nonterminal frame cannot become success"},
+    {"id":"eof_malformed_terminal","criterion":"C1-AC3","expected":"C1-R2: malformed EOF terminal fails explicitly"}
+  ]
+}

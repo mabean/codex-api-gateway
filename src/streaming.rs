@@ -126,6 +126,175 @@ fn protocol(message: &str) -> ProxyError {
     }
 }
 
+// Both native forwarding and canonical translation wait for complete byte lines.
+// Decode only afterwards, so transport chunk boundaries never split UTF-8.
+fn take_sse_line(pending: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let end = pending.iter().position(|b| *b == b'\n')?;
+    Some(pending.drain(..=end).collect())
+}
+
+/// Validate framing and terminal outcomes without projecting away native fields.
+#[derive(Default)]
+pub struct NativeResponsesSseParser {
+    pending: Vec<u8>,
+    frame: Vec<u8>,
+    data: Vec<String>,
+    event: Option<String>,
+    pub terminal: bool,
+    pending_error: Option<ProxyError>,
+}
+
+impl NativeResponsesSseParser {
+    pub fn check_error(&mut self) -> Result<(), ProxyError> {
+        self.pending_error.take().map_or(Ok(()), Err)
+    }
+
+    pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<u8>, ProxyError> {
+        self.check_error()?;
+        self.pending.extend_from_slice(bytes);
+        let mut out = Vec::new();
+        while !self.terminal {
+            let Some(raw) = take_sse_line(&mut self.pending) else {
+                break;
+            };
+            let result = self.line(&raw);
+            match result {
+                Ok(Some(frame)) => out.extend(frame),
+                Ok(None) => (),
+                Err(error) if out.is_empty() => return Err(error),
+                Err(error) => {
+                    self.pending_error = Some(error);
+                    return Ok(out);
+                }
+            }
+        }
+        if !self.terminal && self.frame.len() + self.pending.len() > 1024 * 1024 {
+            let error = protocol("upstream SSE frame exceeds 1 MiB limit");
+            if out.is_empty() {
+                return Err(error);
+            }
+            self.pending_error = Some(error);
+        }
+        Ok(out)
+    }
+
+    fn line(&mut self, raw: &[u8]) -> Result<Option<Vec<u8>>, ProxyError> {
+        self.frame.extend_from_slice(raw);
+        if self.frame.len() > 1024 * 1024 {
+            return Err(protocol("upstream SSE frame exceeds 1 MiB limit"));
+        }
+        let line = std::str::from_utf8(raw)
+            .map_err(|_| protocol("invalid upstream UTF-8"))?
+            .trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            return self.dispatch().map(Some);
+        }
+        if let Some(data) = line.strip_prefix("data:") {
+            self.data
+                .push(data.strip_prefix(' ').unwrap_or(data).into());
+        } else if let Some(event) = line.strip_prefix("event:") {
+            self.event = Some(event.trim_start_matches(' ').into());
+        } else if !line.starts_with(':') && !line.starts_with("id:") && !line.starts_with("retry:")
+        {
+            return Err(protocol("malformed upstream SSE field"));
+        }
+        Ok(None)
+    }
+
+    fn dispatch(&mut self) -> Result<Vec<u8>, ProxyError> {
+        let raw = std::mem::take(&mut self.frame);
+        let event_name = self.event.take();
+        if self.data.is_empty() {
+            return Ok(raw);
+        }
+        let data = std::mem::take(&mut self.data).join("\n");
+        let mut event: Value =
+            serde_json::from_str(&data).map_err(|_| protocol("malformed upstream SSE JSON"))?;
+        let kind = event
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| protocol("upstream event missing type"))?
+            .to_owned();
+        if event_name.as_deref().is_some_and(|name| name != kind) {
+            return Err(protocol("upstream SSE event/type mismatch"));
+        }
+        let expected = match kind.as_str() {
+            "response.completed" => Some("completed"),
+            "response.incomplete" => Some("incomplete"),
+            "response.failed" => Some("failed"),
+            "response.done" => Some(
+                event
+                    .pointer("/response/status")
+                    .and_then(Value::as_str)
+                    .filter(|s| matches!(*s, "completed" | "incomplete" | "failed"))
+                    .ok_or_else(|| protocol("legacy terminal missing valid status"))?,
+            ),
+            _ => None,
+        };
+        if let Some(status) = expected {
+            if !event.get("response").is_some_and(Value::is_object) {
+                return Err(protocol("upstream terminal missing response object"));
+            }
+            if event
+                .pointer("/response/status")
+                .is_some_and(|s| s.as_str() != Some(status))
+            {
+                return Err(protocol("contradictory upstream terminal status"));
+            }
+            self.terminal = true;
+            if kind == "response.done" {
+                let normalized = format!("response.{status}");
+                event["type"] = Value::String(normalized.clone());
+                // Preserve ancillary SSE fields while replacing every event line.
+                let text = std::str::from_utf8(&raw).expect("validated SSE UTF-8");
+                let mut prefix = String::new();
+                for line in text.lines() {
+                    if !line.is_empty() && !line.starts_with("data:") && !line.starts_with("event:")
+                    {
+                        prefix.push_str(line);
+                        prefix.push('\n');
+                    }
+                }
+                return Ok(format!("{prefix}event: {normalized}\ndata: {event}\n\n").into_bytes());
+            }
+        } else if kind == "error" {
+            self.terminal = true;
+        }
+        Ok(raw)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, ProxyError> {
+        self.check_error()?;
+        if self.terminal {
+            return Ok(Vec::new());
+        }
+        // Like the canonical parser, dispatch a final complete JSON event at
+        // EOF even when the upstream omits its final line/frame delimiters.
+        let pending = std::mem::take(&mut self.pending);
+        let mut frame = Vec::new();
+        if !pending.is_empty() {
+            if let Some(emitted) = self.line(&pending)? {
+                frame = emitted;
+            }
+        }
+        if !self.terminal {
+            frame = self.dispatch()?;
+        }
+        if !self.terminal {
+            return Err(protocol("upstream stream ended without terminal"));
+        }
+        // Ordinary SSE consumers need a blank line to decode this event. Keep
+        // all original bytes and append only the missing boundary.
+        if !frame.ends_with(b"\n\n") && !frame.ends_with(b"\r\n\r\n") {
+            if !frame.ends_with(b"\n") {
+                frame.push(b'\n');
+            }
+            frame.push(b'\n');
+        }
+        Ok(frame)
+    }
+}
+
 /// Incremental SSE framing retains bytes until complete lines, including split UTF-8.
 /// A single frame and the complete canonical response each have explicit limits.
 #[derive(Default)]
@@ -152,8 +321,7 @@ impl CodexSseParser {
         }
         self.pending.extend_from_slice(bytes);
         let mut out = Vec::new();
-        while let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
-            let raw: Vec<u8> = self.pending.drain(..=end).collect();
+        while let Some(raw) = take_sse_line(&mut self.pending) {
             let line = std::str::from_utf8(&raw)
                 .map_err(|_| protocol("invalid upstream UTF-8"))?
                 .trim_end_matches(['\r', '\n']);

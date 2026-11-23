@@ -2280,3 +2280,122 @@ fn p5_r2_finalized_arguments_are_immutable() {
         );
     }
 }
+#[test]
+fn c1_native_frames_preserve_bytes_and_stop_at_terminal() {
+    use crate::streaming::NativeResponsesSseParser;
+    let raw = concat!(
+        ": opaque\r\nid: 42\r\nevent: response.output_text.delta\r\n",
+        "data: {\"type\":\"response.output_text.delta\",\r\n",
+        "data: \"delta\":\"café\",\"opaque\":{\"x\":1}}\r\n\r\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+    );
+    for size in [1, 7, raw.len()] {
+        let mut parser = NativeResponsesSseParser::default();
+        let mut output = Vec::new();
+        for bytes in raw.as_bytes().chunks(size) {
+            output.extend(parser.feed(bytes).unwrap());
+        }
+        assert_eq!(output, raw.as_bytes());
+        assert!(parser.terminal);
+        assert!(parser.finish().is_ok());
+    }
+    let mut parser = NativeResponsesSseParser::default();
+    assert_eq!(
+        parser
+            .feed(format!("{raw}data: malformed suffix\n\n").as_bytes())
+            .unwrap(),
+        raw.as_bytes()
+    );
+}
+
+#[test]
+fn c1_native_terminal_normalization_and_fail_closed() {
+    use crate::streaming::NativeResponsesSseParser;
+    for status in ["completed", "incomplete", "failed"] {
+        let mut parser = NativeResponsesSseParser::default();
+        let raw = format!("id: keep\nevent: response.done\ndata: {{\"type\":\"response.done\",\"opaque\":7,\"response\":{{\"status\":\"{status}\",\"usage\":{{\"input_tokens\":3}}}}}}\n\n");
+        let output = String::from_utf8(parser.feed(raw.as_bytes()).unwrap()).unwrap();
+        assert!(output.contains(&format!("event: response.{status}\n")));
+        assert!(output.contains("id: keep\n"));
+        let value: serde_json::Value = serde_json::from_str(
+            output
+                .lines()
+                .find_map(|s| s.strip_prefix("data: "))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(value["type"], format!("response.{status}"));
+        assert_eq!(value["opaque"], 7);
+        assert_eq!(value["response"]["usage"]["input_tokens"], 3);
+        assert!(parser.terminal);
+    }
+    for raw in [
+        "data: {broken}\n\n",
+        "data: {\"type\":\"response.completed\"}\n\n",
+        "data: {\"type\":\"response.done\",\"response\":{\"status\":\"in_progress\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"failed\"}}\n\n",
+        "event: response.failed\ndata: {\"type\":\"response.completed\"}\n\n",
+        "data: [DONE]\n\n",
+    ] {
+        assert!(
+            NativeResponsesSseParser::default()
+                .feed(raw.as_bytes())
+                .is_err(),
+            "{raw}"
+        );
+    }
+    assert!(NativeResponsesSseParser::default().finish().is_err());
+    assert!(NativeResponsesSseParser::default()
+        .feed(&vec![b'x'; 1024 * 1024 + 1])
+        .is_err());
+    // A valid frame preceding a broken one is emitted, then its error is explicit.
+    let mut parser = NativeResponsesSseParser::default();
+    assert!(!parser
+        .feed(b"data: {\"type\":\"opaque\"}\n\ndata: broken\n\n")
+        .unwrap()
+        .is_empty());
+    assert!(parser.check_error().is_err());
+}
+
+#[test]
+fn c1_r2_native_eof_dispatches_only_valid_terminals() {
+    use crate::streaming::NativeResponsesSseParser;
+    for suffix in ["", "\n", "\r\n", "\n\r"] {
+        for status in ["completed", "incomplete", "failed"] {
+            for kind in [format!("response.{status}"), "response.done".into()] {
+                let raw = format!("id: keep\nevent: {kind}\ndata: {{\"type\":\"{kind}\",\"response\":{{\"status\":\"{status}\",\"extension\":{{\"keep\":42}}}}}}{suffix}");
+                let mut parser = NativeResponsesSseParser::default();
+                for byte in raw.as_bytes().chunks(1) {
+                    assert!(parser.feed(byte).unwrap().is_empty());
+                }
+                let output = parser.finish().unwrap();
+                assert!(parser.terminal);
+                assert!(output.ends_with(b"\n\n"));
+                if kind != "response.done" {
+                    assert!(output.starts_with(raw.as_bytes()));
+                }
+                let text = String::from_utf8(output).unwrap();
+                let value: serde_json::Value = serde_json::from_str(
+                    text.lines()
+                        .find_map(|line| line.strip_prefix("data: "))
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(value["type"], format!("response.{status}"));
+                assert_eq!(value["response"]["extension"]["keep"], 42);
+                assert!(parser.finish().unwrap().is_empty());
+            }
+        }
+    }
+    for raw in [
+        "data: {broken}",
+        "data: {\"type\":\"response.completed\"}",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"failed\"}}",
+        "data: {\"type\":\"opaque\"}",
+        "data: {\"type\":\"response.done\",\"response\":{\"status\":\"in_progress\"}}",
+    ] {
+        let mut parser = NativeResponsesSseParser::default();
+        assert!(parser.feed(raw.as_bytes()).unwrap().is_empty());
+        assert!(parser.finish().is_err(), "accepted EOF frame {raw}");
+    }
+}
