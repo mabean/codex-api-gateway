@@ -1267,5 +1267,41 @@
     "version": "2.1.289",
     "source": "docs/claude-code-protocol-2026-11-20.md",
     "status": "unchanged dated report; not rerun here"
+  },
+  "p5_update": {
+    "date": "2026-11-23",
+    "status": "implemented_local_contract_pending_independent_acceptance",
+    "sources": [
+      "https://developers.openai.com/api/reference/resources/responses/streaming-events",
+      "https://platform.claude.com/docs/en/api/typescript/messages"
+    ],
+    "verification": "docs/claude-code-p5-verification-2026-11-23.md",
+    "historical_baseline": "Original records, comparisons and P2 expectations retained.",
+    "extended_mapping": [
+      {
+        "source": "response.reasoning_summary_text.delta",
+        "public_schema": true,
+        "codex_route_emission": "unverified",
+        "target": "thinking/signature",
+        "missing": "Claude provider signature",
+        "translation": "unavailable; raw Responses retained; direct Anthropic roundtrip verified"
+      },
+      {
+        "source": "response.output_text.annotation.added",
+        "public_schema": true,
+        "codex_route_emission": "unverified",
+        "target": "citations",
+        "missing": "provider encrypted_index/cited text or target document coordinates",
+        "translation": "unavailable; raw Responses retained; direct Anthropic roundtrip verified"
+      },
+      {
+        "source": "response.compaction.compacting and compaction output item",
+        "public_schema": true,
+        "codex_route_emission": "unverified",
+        "target": "compaction content",
+        "missing": "notice has no summary content; opaque source item has no Anthropic compacted content",
+        "translation": "unavailable; raw Responses retained; direct Anthropic roundtrip verified"
+      }
+    ]
   }
 }

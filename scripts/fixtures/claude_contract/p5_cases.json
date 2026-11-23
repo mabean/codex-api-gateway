@@ -1,0 +1,108 @@
+{
+  "cases": [
+    {
+      "id": "text",
+      "expected": "decoded text before closed terminal barrier; exact final text, late 17/11 counters and end_turn"
+    },
+    {
+      "id": "tool",
+      "expected": "decoded input_json_delta before closed barrier; reconciled full JSON once; tool_use and 17/11 counters"
+    },
+    {
+      "id": "tool_error",
+      "expected": "deadline error after committed tool fragment rejects without retry, repeated JSON fragment or successful terminal"
+    },
+    {
+      "id": "start_error",
+      "expected": "message_start commits retry boundary before any text; SDK finalMessage rejects deadline error without replay"
+    },
+    {
+      "id": "limit",
+      "expected": "documented max_output_tokens produces max_tokens with actual counters and one terminal"
+    },
+    {
+      "id": "eof",
+      "expected": "missing terminal rejects finalMessage; no success stop"
+    },
+    {
+      "id": "error",
+      "expected": "retryable deadline error after committed text rejects without retry or repeated text"
+    },
+    {
+      "id": "failed",
+      "expected": "explicit upstream failed rejects without successful terminal"
+    },
+    {
+      "id": "malformed",
+      "expected": "malformed JSON after text preserves original fragment once and rejects"
+    },
+    {
+      "id": "contradiction",
+      "expected": "contradictory final snapshot rejects without replay"
+    },
+    {
+      "id": "duplicate_terminal",
+      "expected": "duplicate response terminal rejects without duplicate or successful terminal"
+    },
+    {
+      "id": "timeout",
+      "expected": "total upstream deadline after committed text rejects without retry"
+    },
+    {
+      "id": "abort",
+      "expected": "original ff.abort signal reaches actual fetch and actual upstream EOF"
+    },
+    {
+      "id": "disconnect",
+      "expected": "downstream response reader cancellation closes actual upstream connection"
+    },
+    {
+      "id": "retry",
+      "expected": "one real 503 before emission followed by one successful upstream request"
+    },
+    {
+      "id": "direct_extended",
+      "expected": "all direct Anthropic event fields and accumulated thinking/signature/citations/compaction retained"
+    },
+    {
+      "id": "raw_responses",
+      "expected": "raw Responses SSE bytes retain reasoning summaries, citation fields, compaction notice and opaque item"
+    },
+    {
+      "id": "chat_json",
+      "expected": "ordinary Chat JSON content retained"
+    },
+    {
+      "id": "chat_stream",
+      "expected": "ordinary Chat SSE schema and DONE retained"
+    },
+    {
+      "id": "responses_json",
+      "expected": "ordinary Responses JSON response object retained"
+    },
+    {
+      "id": "unfinished_tool",
+      "expected": "P5-R1: completion with unfinished started tool rejects finalMessage without successful terminal"
+    },
+    {
+      "id": "finalized_tool_whitespace",
+      "expected": "P5-R2: whitespace change after final tool closure rejects without post-stop delta"
+    },
+    {
+      "id": "finalized_tool_second_json",
+      "expected": "P5-R2: second JSON value after final tool closure rejects without post-stop delta"
+    },
+    {
+      "id": "parallel_tools",
+      "expected": "completed multiple tools and identical terminal snapshots preserve one closure each"
+    },
+    {
+      "id": "terminal_tool_snapshot",
+      "expected": "authoritative terminal snapshot supplies unseen suffix and finalizes started tool"
+    },
+    {
+      "id": "partial_tool_limit",
+      "expected": "incomplete max_output_tokens preserves partial tool and max_tokens termination"
+    }
+  ]
+}

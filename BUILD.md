@@ -139,3 +139,16 @@ PY
 ```
 
 Normal and intentional failure runs use synthetic credentials, temporary profiles, protected-file/OS network probes, explicit loopback upstreams, redirect rejection and owned process cleanup. Extracted proprietary code and traces stay in the printed local temporary directory. P1 and the complete CI baseline remain required. Dependency-age metadata access is a separate best-effort check.
+
+## Offline incremental Codex SSE contract (P5)
+
+Prebuild the release gateway and use the same pinned local Claude Code 2.1.329 binary and Node installation as P1:
+
+```bash
+python3 -B scripts/claude_contract_p5.py --binary /opt/homebrew/bin/claude --gateway target/release/codex-api-gateway
+python3 -B -m unittest discover -s scripts -p 'test_claude_contract_p5.py'
+```
+
+The 26 mandatory cases execute the original `zi.create`, `zt`/`cc` SSE decoder and `ff.finalMessage` accumulator. Original `ff.abort` cancellation reaches the real fetch signal; an upstream socket probe confirms actual connection closure. Text and tool cases retain a closed terminal barrier until the original consumer observes a fragment. The suite checks completed/unfinished/finalized/parallel tool lifecycles, authoritative terminal tool snapshots, late usage, max-token termination, malformed/contradictory/duplicate/truncated/error/deadline outcomes, actual upstream attempt counts, downstream cancellation, direct Anthropic extended fields, raw Responses wire bytes and OpenAI JSON/Chat SSE controls. Transport is an explicitly bounded adapter; SDK automatic retry and the full CLI loop are not executed by P5. Gateway retries are counted at the fixture.
+
+The runner uses the existing macOS localhost-only OS policy, synthetic credentials, protected credential canary and external-redirect rejection. Unknown fingerprints, missing mandatory cases and unavailable checks fail nonzero. `--fail-after-start` deliberately exits 1 and must leave `owned_process_cleanup`, `owned_ports_closed` and `unrelated_listener_alive` true in `result.json`. Preserve the immutable original gateway and run the identical command against it for before/after evidence; do not change P2 historical expectations. Run P1/P3/P4 and the full CI baseline as regressions. See [dated P5 verification](docs/claude-code-p5-verification-2026-11-23.md) for the precise local scope and source-to-target limitations.

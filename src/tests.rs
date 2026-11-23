@@ -1251,11 +1251,11 @@ fn convert_chat_to_responses_preserves_assistant_history() {
 #[test]
 fn parse_codex_sse_emits_tool_call_events() {
     let sse = concat!(
-        "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_123\",\"name\":\"Edit\"}}\n",
-        "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"call_123\",\"delta\":\"{\\\"path\\\":\"}\n",
-        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_123\",\"name\":\"Edit\",\"arguments\":\"{\\\"path\\\":\\\"x\\\"}\"}}\n",
-        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-        "data: [DONE]\n"
+        "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_123\",\"name\":\"Edit\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"call_123\",\"delta\":\"{\\\"path\\\":\"}\n\n",
+        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_123\",\"name\":\"Edit\",\"arguments\":\"{\\\"path\\\":\\\"x\\\"}\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+        "data: [DONE]\n\n"
     );
     let events = crate::streaming::parse_codex_sse_to_events(sse).unwrap();
     assert!(events.iter().any(|e| matches!(e, crate::streaming::CanonicalStreamEvent::ToolCallStart { call_id, name } if call_id == "call_123" && name == "Edit")));
@@ -1366,9 +1366,9 @@ fn render_anthropic_sse_sets_tool_use_stop_reason_when_tool_calls_exist() {
 #[test]
 fn render_anthropic_sse_handles_completed_function_call_items() {
     let sse = concat!(
-        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_xyz\",\"name\":\"Edit\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\"}\",\"status\":\"completed\"}}\n",
-        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-        "data: [DONE]\n"
+        "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_xyz\",\"name\":\"Edit\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\"}\",\"status\":\"completed\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+        "data: [DONE]\n\n"
     );
     let events = crate::streaming::parse_codex_sse_to_events(sse).unwrap();
     let out = crate::streaming::render_anthropic_sse(&events, "gpt-5.4");
@@ -1384,59 +1384,59 @@ fn anthropic_edit_prompt_stream_must_use_tool_use_contract() {
         (
             "completed_function_call_item",
             concat!(
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit\",\"name\":\"Edit\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\",\\\"old_string\\\":\\\"\\\",\\\"new_string\\\":\\\"TOOL_USE_OK\\\"}\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit\",\"name\":\"Edit\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\",\\\"old_string\\\":\\\"\\\",\\\"new_string\\\":\\\"TOOL_USE_OK\\\"}\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
         (
             "streaming_function_call_arguments",
             concat!(
-                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read\",\"name\":\"Read\"}}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\"\"}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read\",\"delta\":\",\\\"offset\\\":1}\"}\n",
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read\",\"name\":\"Read\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read\",\"name\":\"Read\"}}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\"\"}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read\",\"delta\":\",\\\"offset\\\":1}\"}\n\n",
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read\",\"name\":\"Read\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
         (
             "bash_tool_call",
             concat!(
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_bash\",\"name\":\"Bash\",\"arguments\":\"{\\\"command\\\":\\\"pwd\\\"}\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_bash\",\"name\":\"Bash\",\"arguments\":\"{\\\"command\\\":\\\"pwd\\\"}\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
         (
             "write_tool_call",
             concat!(
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_write\",\"name\":\"Write\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\",\\\"content\\\":\\\"hello\\\"}\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_write\",\"name\":\"Write\",\"arguments\":\"{\\\"file_path\\\":\\\"note.txt\\\",\\\"content\\\":\\\"hello\\\"}\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
         (
             "edit_multidelta_json",
             concat!(
-                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit2\",\"name\":\"Edit\"}}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\",\"}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"\\\"old_string\\\":\\\"before\\\",\"}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"\\\"new_string\\\":\\\"after\\\"}\"}\n",
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit2\",\"name\":\"Edit\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit2\",\"name\":\"Edit\"}}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\",\"}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"\\\"old_string\\\":\\\"before\\\",\"}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_edit2\",\"delta\":\"\\\"new_string\\\":\\\"after\\\"}\"}\n\n",
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_edit2\",\"name\":\"Edit\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
         (
             "mixed_text_then_tool_use",
             concat!(
-                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Let me check that.\"}\n",
-                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read2\",\"name\":\"Read\"}}\n",
-                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read2\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\"}\"}\n",
-                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read2\",\"name\":\"Read\",\"status\":\"completed\"}}\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n",
-                "data: [DONE]\n"
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Let me check that.\"}\n\n",
+                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read2\",\"name\":\"Read\"}}\n\n",
+                "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call_read2\",\"delta\":\"{\\\"file_path\\\":\\\"note.txt\\\"}\"}\n\n",
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read2\",\"name\":\"Read\",\"status\":\"completed\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n",
+                "data: [DONE]\n\n"
             )
         ),
     ];
@@ -2147,4 +2147,136 @@ fn canonical_text_rejects_contradictory_final_text_instead_of_losing_streamed_co
         crate::streaming::parse_codex_sse_to_events(sse),
         Err(ProxyError::UpstreamProtocol { .. })
     ));
+}
+
+#[test]
+fn p5_segmented_sse_matches_buffered_with_utf8_crlf_and_final_frame() {
+    use crate::streaming::{parse_codex_sse_to_events, CodexSseParser};
+    let wire = concat!(
+        ": heartbeat\r\n\r\n",
+        "event: response.output_text.delta\r\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"café\"}\r\n\r\n",
+        "data: {\"type\":\"response.output_text.done\",\"output_index\":0,\"text\":\"café!\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":17,\"output_tokens\":11}}}"
+    );
+    let expected = parse_codex_sse_to_events(wire).unwrap();
+    for size in 1..=wire.len() {
+        let mut parser = CodexSseParser::default();
+        let mut events = Vec::new();
+        for bytes in wire.as_bytes().chunks(size) {
+            events.extend(parser.feed(bytes).unwrap());
+        }
+        events.extend(parser.finish().unwrap());
+        assert_eq!(events, expected, "chunk size {size}");
+    }
+}
+
+#[test]
+fn p5_strict_terminal_and_malformed_data() {
+    use crate::streaming::parse_codex_sse_to_events;
+    for wire in [
+        "data: {broken}\n\n",
+        "data: {}\n\n",
+        "data: [DONE]\n\n",
+        "data: {\"type\":\"response.output_text.delta\"}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+        "data: {\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"unknown\"}}}\n\n",
+        "data: {\"type\":\"response.failed\"}\n\n",
+        "data: {\"type\":\"error\"}\n\n",
+        "data: {\"type\":\"response.completed\"}\n\ndata: {\"type\":\"response.completed\"}\n\n",
+    ] {
+        assert!(parse_codex_sse_to_events(wire).is_err(), "accepted {wire}");
+    }
+}
+
+#[test]
+fn p5_tool_final_suffix_and_terminal_snapshot_deduplicate() {
+    use crate::streaming::{parse_codex_sse_to_events, render_anthropic_sse};
+    let item = serde_json::json!({"type":"function_call","id":"fc","call_id":"call","name":"Read","arguments":"{\"file_path\":\"x\"}"});
+    let wire: String = [
+        serde_json::json!({"type":"response.output_item.added","item":{"type":"function_call","id":"fc","call_id":"call","name":"Read"}}),
+        serde_json::json!({"type":"response.function_call_arguments.delta","item_id":"fc","delta":"{\"file_path\":"}),
+        serde_json::json!({"type":"response.function_call_arguments.done","item_id":"fc","arguments":"{\"file_path\":\"x\"}"}),
+        serde_json::json!({"type":"response.output_item.done","item":item}),
+        serde_json::json!({"type":"response.completed","response":{"output":[item],"usage":{"input_tokens":23,"output_tokens":13}}}),
+    ].iter().map(|v|format!("data: {v}\n\n")).collect();
+    let events = parse_codex_sse_to_events(&wire).unwrap();
+    let out = render_anthropic_sse(&events, "fixture");
+    assert_eq!(out.matches("event: content_block_start").count(), 1);
+    assert_eq!(out.matches("event: content_block_stop").count(), 1);
+    assert!(out.contains("\"input_tokens\":23,\"output_tokens\":13"));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(
+                e,
+                crate::streaming::CanonicalStreamEvent::ToolCallDone { .. }
+            ))
+            .count(),
+        1
+    );
+    let broken = wire.replace(
+        "\"arguments\":\"{\\\"file_path\\\":\\\"x\\\"}\"",
+        "\"arguments\":\"{}\"",
+    );
+    assert!(parse_codex_sse_to_events(&broken).is_err());
+}
+
+#[test]
+fn p5_terminal_snapshot_text_and_max_tokens_usage() {
+    use crate::streaming::{parse_codex_sse_to_events, render_anthropic_sse};
+    let wire = [
+        serde_json::json!({"type":"response.output_text.delta","output_index":0,"delta":"hel"}),
+        serde_json::json!({"type":"response.incomplete","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":1,"output_tokens":2}}}),
+    ].iter().map(|v|format!("data: {v}\n\n")).collect::<String>();
+    let out = render_anthropic_sse(&parse_codex_sse_to_events(&wire).unwrap(), "fixture");
+    assert!(out.contains("\"text\":\"hel\""));
+    assert!(out.contains("\"text\":\"lo\""));
+    assert!(out.contains("\"stop_reason\":\"max_tokens\""));
+    assert_eq!(out.matches("event: message_stop").count(), 1);
+}
+
+#[test]
+fn p5_bounded_frames_and_invalid_utf8_fail() {
+    use crate::streaming::CodexSseParser;
+    assert!(CodexSseParser::default()
+        .feed(&vec![b'x'; 1024 * 1024 + 1])
+        .is_err());
+    assert!(CodexSseParser::default().feed(b"data: \xff\n\n").is_err());
+}
+
+#[test]
+fn p5_r1_unfinished_tool_requires_completion_or_max_tokens() {
+    use crate::streaming::parse_codex_sse_to_events;
+    let start = serde_json::json!({"type":"response.output_item.added","item":{"type":"function_call","id":"fc_r1","call_id":"call_r1","name":"Read","arguments":""}});
+    let completed = serde_json::json!({"type":"response.completed","response":{"status":"completed","output":[]}});
+    assert!(parse_codex_sse_to_events(&format!("data: {start}\n\ndata: {completed}\n\n")).is_err());
+    let limited = serde_json::json!({"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}});
+    assert!(parse_codex_sse_to_events(&format!("data: {start}\n\ndata: {limited}\n\n")).is_ok());
+    let finalized = serde_json::json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","id":"fc_r1","call_id":"call_r1","name":"Read","arguments":"{}"}]}});
+    assert!(parse_codex_sse_to_events(&format!("data: {start}\n\ndata: {finalized}\n\n")).is_ok());
+}
+
+#[test]
+fn p5_r2_finalized_arguments_are_immutable() {
+    use crate::streaming::{CanonicalStreamEvent, CodexSseParser};
+    let start = serde_json::json!({"type":"response.output_item.added","item":{"type":"function_call","id":"fc_r2","call_id":"call_r2","name":"Read","arguments":""}});
+    let done = serde_json::json!({"type":"response.function_call_arguments.done","item_id":"fc_r2","arguments":"{}"});
+    for changed in ["{} ", "{}{}", "", "{\"changed\":true}"] {
+        let mut parser = CodexSseParser::default();
+        parser
+            .feed(format!("data: {start}\n\n").as_bytes())
+            .unwrap();
+        assert!(parser
+            .feed(format!("data: {done}\n\n").as_bytes())
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, CanonicalStreamEvent::ToolCallDone { .. })));
+        let snapshot = serde_json::json!({"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_r2","name":"Read","arguments":changed}});
+        assert!(
+            parser
+                .feed(format!("data: {snapshot}\n\n").as_bytes())
+                .is_err(),
+            "accepted changed final arguments {changed:?}"
+        );
+    }
 }

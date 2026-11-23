@@ -1519,14 +1519,13 @@ impl ProxyServer {
         )
     }
 
-    async fn send_codex_upstream_once(
+    async fn open_codex_upstream(
         &self,
         model: &str,
         payload: &Value,
         timeout: Duration,
         attempt: usize,
-    ) -> Result<String, ProxyError> {
-        let started = Instant::now();
+    ) -> Result<reqwest::Response, ProxyError> {
         let mut request_builder = self
             .client
             .post(format!(
@@ -1569,6 +1568,20 @@ impl ProxyServer {
                 message: format!("failed to send request to upstream: {}", e),
             }
         })?;
+        Ok(response)
+    }
+
+    async fn send_codex_upstream_once(
+        &self,
+        model: &str,
+        payload: &Value,
+        timeout: Duration,
+        attempt: usize,
+    ) -> Result<String, ProxyError> {
+        let started = Instant::now();
+        let response = self
+            .open_codex_upstream(model, payload, timeout, attempt)
+            .await?;
         let header_elapsed_ms = started.elapsed().as_millis();
         let status = response.status();
         let headers = format!("{:?}", response.headers());
@@ -1628,6 +1641,147 @@ impl ProxyServer {
             })?;
         self.upstream_sse_text_for_payload(model, payload, retry_config)
             .await
+    }
+
+    async fn proxy_anthropic_codex_stream(
+        &self,
+        chat_req: ChatCompletionsRequest,
+        retry: CodexUpstreamRetryConfig,
+    ) -> Result<warp::hyper::Body, ProxyError> {
+        let req = self.convert_chat_to_responses(chat_req)?;
+        let model = req.model.clone();
+        let payload = serde_json::to_value(req).map_err(|e| ProxyError::UpstreamProtocol {
+            message: e.to_string(),
+        })?;
+        // Own the upstream stream in the downstream body's pull state. Dropping
+        // that body drops reqwest immediately; there is no detached producer.
+        let mut selected = None;
+        for attempt in 1..=retry.max_attempts {
+            let result = async {
+                let response = self
+                    .open_codex_upstream(&model, &payload, retry.timeout, attempt)
+                    .await?;
+                if !response.status().is_success() {
+                    return Err(classify_upstream_error(
+                        response.status(),
+                        format!("upstream returned {}", response.status()),
+                    ));
+                }
+                let mut source = response.bytes_stream();
+                let mut parser = streaming::CodexSseParser::default();
+                let mut encoder = streaming::AnthropicSseEncoder::new(&model);
+                let mut terminal = Vec::new();
+                loop {
+                    parser.check_error()?;
+                    let events = match source.next().await {
+                        Some(Ok(bytes)) => parser.feed(&bytes)?,
+                        Some(Err(e)) => {
+                            return Err(ProxyError::UpstreamUnavailable {
+                                message: format!("failed to read upstream response body: {e}"),
+                            })
+                        }
+                        None => {
+                            let events = parser.finish()?;
+                            terminal.extend(events);
+                            break;
+                        }
+                    };
+                    let mut visible = Vec::new();
+                    for event in events {
+                        if matches!(event, CanonicalStreamEvent::Completed { .. }) {
+                            terminal.push(event);
+                        } else {
+                            visible.push(event);
+                        }
+                    }
+                    let first = encoder.encode(&visible);
+                    if !first.is_empty() {
+                        return Ok((source, parser, encoder, terminal, first, false));
+                    }
+                }
+                let first = encoder.encode(&terminal);
+                Ok((source, parser, encoder, Vec::new(), first, true))
+            }
+            .await;
+            match result {
+                Ok(value) => {
+                    selected = Some(value);
+                    break;
+                }
+                Err(error)
+                    if attempt < retry.max_attempts
+                        && error.is_retryable_codex_upstream_error() =>
+                {
+                    continue
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let (source, parser, encoder, terminal, first, done) =
+            selected.ok_or_else(|| ProxyError::UpstreamUnavailable {
+                message: "no upstream attempt".into(),
+            })?;
+        let state = (source, parser, encoder, terminal, Some(first), done);
+        let output = stream::unfold(
+            state,
+            |(mut source, mut parser, mut encoder, mut terminal, mut first, mut done)| async move {
+                if let Some(frame) = first.take() {
+                    return Some((
+                        Ok::<_, std::io::Error>(frame),
+                        (source, parser, encoder, terminal, first, done),
+                    ));
+                }
+                if done {
+                    return None;
+                }
+                loop {
+                    let result = if let Err(error) = parser.check_error() {
+                        Err(error)
+                    } else {
+                        match source.next().await {
+                            Some(Ok(bytes)) => parser.feed(&bytes),
+                            Some(Err(error)) => Err(ProxyError::UpstreamProtocol {
+                                message: format!("upstream stream read failed: {error}"),
+                            }),
+                            None => {
+                                done = true;
+                                parser.finish()
+                            }
+                        }
+                    };
+                    let frame = match result {
+                        Ok(events) => {
+                            let mut visible = Vec::new();
+                            for event in events {
+                                if matches!(event, CanonicalStreamEvent::Completed { .. }) {
+                                    terminal.push(event);
+                                } else {
+                                    visible.push(event);
+                                }
+                            }
+                            if done {
+                                visible.append(&mut terminal);
+                            }
+                            encoder.encode(&visible)
+                        }
+                        Err(error) => {
+                            done = true;
+                            format!(
+                                "event: error\ndata: {}\n\n",
+                                json!({"type":"error","error":{"type":"api_error","message":error.message()}})
+                            )
+                        }
+                    };
+                    if !frame.is_empty() {
+                        return Some((Ok(frame), (source, parser, encoder, terminal, first, done)));
+                    }
+                    if done {
+                        return None;
+                    }
+                }
+            },
+        );
+        Ok(warp::hyper::Body::wrap_stream(output))
     }
 
     async fn proxy_request_stream(
@@ -3631,17 +3785,13 @@ async fn universal_request_handler(
                 };
                 if stream {
                     match proxy
-                        .proxy_request_stream_with_retry(
-                            chat_req,
-                            ApiFamily::Anthropic,
-                            retry_config,
-                        )
+                        .proxy_anthropic_codex_stream(chat_req, retry_config)
                         .await
                     {
-                        Ok((_model, sse_body)) => {
-                            warp::reply::with_header(sse_body, "content-type", "text/event-stream")
-                                .into_response()
-                        }
+                        Ok(body) => warp::http::Response::builder()
+                            .header("content-type", "text/event-stream")
+                            .body(body)
+                            .unwrap(),
                         Err(err) => anthropic_error_response(err),
                     }
                 } else {

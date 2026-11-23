@@ -120,47 +120,150 @@ impl CodexTextState {
     }
 }
 
-pub fn parse_codex_sse_to_events(
-    response_text: &str,
-) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
-    let mut events = Vec::new();
-    let mut saw_message_start = false;
-    let mut text_state = CodexTextState::default();
-    let mut tool_state: std::collections::HashMap<String, (String, String)> =
-        std::collections::HashMap::new();
-    let mut item_call_ids = std::collections::HashMap::<String, String>::new();
-    let mut saw_tool_use = false;
+fn protocol(message: &str) -> ProxyError {
+    ProxyError::UpstreamProtocol {
+        message: message.into(),
+    }
+}
 
-    for line in response_text.lines() {
-        let Some(json_data) = line.strip_prefix("data: ") else {
-            continue;
-        };
-        if json_data == "[DONE]" {
-            break;
+/// Incremental SSE framing retains bytes until complete lines, including split UTF-8.
+/// A single frame and the complete canonical response each have explicit limits.
+#[derive(Default)]
+pub struct CodexSseParser {
+    pending: Vec<u8>,
+    data: Vec<String>,
+    frame_bytes: usize,
+    total_bytes: usize,
+    terminal: bool,
+    saw_message_start: bool,
+    text_state: CodexTextState,
+    tool_state: std::collections::HashMap<String, (String, String)>,
+    item_call_ids: std::collections::HashMap<String, String>,
+    saw_tool_use: bool,
+    finished_tools: std::collections::HashSet<String>,
+    pending_error: Option<ProxyError>,
+}
+impl CodexSseParser {
+    pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
+        self.check_error()?;
+        self.total_bytes += bytes.len();
+        if self.total_bytes > 16 * 1024 * 1024 {
+            return Err(protocol("upstream stream exceeds 16 MiB limit"));
         }
-        let Ok(event) = serde_json::from_str::<Value>(json_data) else {
-            continue;
-        };
-        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
-            continue;
-        };
+        self.pending.extend_from_slice(bytes);
+        let mut out = Vec::new();
+        while let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
+            let raw: Vec<u8> = self.pending.drain(..=end).collect();
+            let line = std::str::from_utf8(&raw)
+                .map_err(|_| protocol("invalid upstream UTF-8"))?
+                .trim_end_matches(['\r', '\n']);
+            if let Err(error) = self.line(line, &mut out) {
+                if out.is_empty() {
+                    return Err(error);
+                }
+                self.pending_error = Some(error);
+                return Ok(out);
+            }
+        }
+        if self.pending.len() + self.frame_bytes > 1024 * 1024 {
+            return Err(protocol("upstream SSE frame exceeds 1 MiB limit"));
+        }
+        Ok(out)
+    }
+    fn line(&mut self, line: &str, out: &mut Vec<CanonicalStreamEvent>) -> Result<(), ProxyError> {
+        if line.is_empty() {
+            return self.dispatch(out);
+        }
+        if let Some(data) = line.strip_prefix("data:") {
+            self.frame_bytes += data.len();
+            if self.frame_bytes > 1024 * 1024 {
+                return Err(protocol("upstream SSE frame exceeds 1 MiB limit"));
+            }
+            self.data
+                .push(data.strip_prefix(' ').unwrap_or(data).to_string());
+        } else if !line.starts_with(':')
+            && !line.starts_with("event:")
+            && !line.starts_with("id:")
+            && !line.starts_with("retry:")
+        {
+            return Err(protocol("malformed upstream SSE field"));
+        }
+        Ok(())
+    }
+    fn dispatch(&mut self, out: &mut Vec<CanonicalStreamEvent>) -> Result<(), ProxyError> {
+        if self.data.is_empty() {
+            return Ok(());
+        }
+        let data = self.data.join("\n");
+        self.data.clear();
+        self.frame_bytes = 0;
+        if data == "[DONE]" {
+            return if self.terminal {
+                Ok(())
+            } else {
+                Err(protocol("upstream DONE without terminal"))
+            };
+        }
+        if self.terminal {
+            return Err(protocol("upstream event after terminal"));
+        }
+        let event: Value =
+            serde_json::from_str(&data).map_err(|_| protocol("malformed upstream SSE JSON"))?;
+        out.extend(self.event(event)?);
+        Ok(())
+    }
+    pub fn finish(&mut self) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
+        self.check_error()?;
+        let raw = std::mem::take(&mut self.pending);
+        if !raw.is_empty() {
+            let line = std::str::from_utf8(&raw)
+                .map_err(|_| protocol("invalid upstream UTF-8"))?
+                .trim_end_matches('\r');
+            self.line(line, &mut Vec::new())?;
+        }
+        let mut out = Vec::new();
+        self.dispatch(&mut out)?;
+        if !self.terminal {
+            return Err(protocol("upstream stream ended without terminal"));
+        }
+        Ok(out)
+    }
+    pub fn check_error(&mut self) -> Result<(), ProxyError> {
+        self.pending_error.take().map_or(Ok(()), Err)
+    }
+    fn event(&mut self, event: Value) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
+        let mut events = Vec::new();
+        let event_type = event
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| protocol("upstream event missing type"))?;
+        for (kind, field) in [
+            ("response.output_text.delta", "delta"),
+            ("response.output_text.done", "text"),
+            ("response.function_call_arguments.delta", "delta"),
+            ("response.function_call_arguments.done", "arguments"),
+        ] {
+            if event_type == kind && event.get(field).and_then(Value::as_str).is_none() {
+                return Err(protocol("upstream event missing required string"));
+            }
+        }
         match event_type {
             "response.output_item.added" | "response.output_item.done" => {
                 if let Some(item) = event.get("item") {
                     match item.get("type").and_then(Value::as_str) {
                         Some("message") => {
-                            if !saw_message_start {
-                                saw_message_start = true;
+                            if !self.saw_message_start {
+                                self.saw_message_start = true;
                                 events.push(CanonicalStreamEvent::MessageStart);
                             }
-                            let text_item = text_state.item(&event, Some(item));
+                            let text_item = self.text_state.item(&event, Some(item));
                             if event_type == "response.output_item.done" {
                                 if let Some(content) = item.get("content").and_then(Value::as_array)
                                 {
                                     for (part_index, part) in content.iter().enumerate() {
                                         if let Some(text) = part.get("text").and_then(Value::as_str)
                                         {
-                                            if let Some(delta) = text_state.finish(
+                                            if let Some(delta) = self.text_state.finish(
                                                 text_item,
                                                 part_index as u64,
                                                 text,
@@ -171,11 +274,11 @@ pub fn parse_codex_sse_to_events(
                                     }
                                 }
                                 // Identifier-free legacy events belong to the next item after done.
-                                text_state.current_item = text_state.fresh_item();
+                                self.text_state.current_item = self.text_state.fresh_item();
                             }
                         }
                         Some("function_call") => {
-                            saw_tool_use = true;
+                            self.saw_tool_use = true;
                             let call_id = item
                                 .get("call_id")
                                 .or_else(|| item.get("id"))
@@ -183,13 +286,28 @@ pub fn parse_codex_sse_to_events(
                                 .unwrap_or_default()
                                 .to_string();
                             if let Some(item_id) = item.get("id").and_then(Value::as_str) {
-                                item_call_ids.insert(item_id.to_string(), call_id.clone());
+                                self.item_call_ids
+                                    .insert(item_id.to_string(), call_id.clone());
                             }
                             let name = item
                                 .get("name")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default()
                                 .to_string();
+                            if call_id.is_empty() || name.is_empty() {
+                                return Err(protocol(
+                                    "upstream tool item missing call identity or name",
+                                ));
+                            }
+                            if self
+                                .tool_state
+                                .get(&call_id)
+                                .is_some_and(|(existing, _)| existing != &name)
+                            {
+                                return Err(protocol(
+                                    "upstream final tool name contradicts streamed name",
+                                ));
+                            }
                             let arguments = item
                                 .get("arguments")
                                 .and_then(Value::as_str)
@@ -199,8 +317,8 @@ pub fn parse_codex_sse_to_events(
                                 .get("status")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
-                            let is_new = !tool_state.contains_key(&call_id);
-                            tool_state
+                            let is_new = !self.tool_state.contains_key(&call_id);
+                            self.tool_state
                                 .entry(call_id.clone())
                                 .or_insert((name.clone(), String::new()));
                             if is_new {
@@ -209,19 +327,27 @@ pub fn parse_codex_sse_to_events(
                                     name: name.clone(),
                                 });
                             }
-                            if !arguments.is_empty() {
-                                if let Some((_name, args)) = tool_state.get_mut(&call_id) {
-                                    if args.is_empty() {
-                                        *args = arguments.clone();
-                                        events.push(CanonicalStreamEvent::ToolCallDelta {
-                                            call_id: call_id.clone(),
-                                            arguments_delta: arguments.clone(),
-                                        });
-                                    }
+                            if item.get("arguments").and_then(Value::as_str).is_some() {
+                                let (_, args) = self.tool_state.get_mut(&call_id).unwrap();
+                                if self.finished_tools.contains(&call_id) && *args != arguments {
+                                    return Err(protocol(
+                                        "upstream changed finalized tool arguments",
+                                    ));
                                 }
+                                let suffix = arguments.strip_prefix(args.as_str()).ok_or_else(|| protocol("upstream final tool arguments contradict streamed arguments"))?;
+                                if !suffix.is_empty() {
+                                    events.push(CanonicalStreamEvent::ToolCallDelta {
+                                        call_id: call_id.clone(),
+                                        arguments_delta: suffix.to_string(),
+                                    });
+                                }
+                                *args = arguments.clone();
                             }
-                            if status == "completed" || event_type == "response.output_item.done" {
-                                let final_arguments = tool_state
+                            if (status == "completed" || event_type == "response.output_item.done")
+                                && self.finished_tools.insert(call_id.clone())
+                            {
+                                let final_arguments = self
+                                    .tool_state
                                     .get(&call_id)
                                     .map(|(_, args)| {
                                         if args.is_empty() {
@@ -249,31 +375,49 @@ pub fn parse_codex_sse_to_events(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                let call_id = item_call_ids.get(&call_id).cloned().unwrap_or(call_id);
+                let call_id = self.item_call_ids.get(&call_id).cloned().unwrap_or(call_id);
                 let delta = event
                     .get("delta")
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                if let Some((_name, args)) = tool_state.get_mut(&call_id) {
-                    args.push_str(&delta);
+                let (_, args) = self
+                    .tool_state
+                    .get_mut(&call_id)
+                    .ok_or_else(|| protocol("tool delta before tool start"))?;
+                if self.finished_tools.contains(&call_id) {
+                    return Err(protocol("tool delta after tool done"));
                 }
+                args.push_str(&delta);
                 if !delta.is_empty() {
-                    saw_tool_use = true;
+                    self.saw_tool_use = true;
                     events.push(CanonicalStreamEvent::ToolCallDelta {
                         call_id,
                         arguments_delta: delta,
                     });
                 }
             }
+            "response.function_call_arguments.done" => {
+                let id = event
+                    .get("call_id")
+                    .or_else(|| event.get("item_id"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| protocol("tool done missing identity"))?;
+                let call_id = self.item_call_ids.get(id).map(String::as_str).unwrap_or(id);
+                let (name, _) = self
+                    .tool_state
+                    .get(call_id)
+                    .ok_or_else(|| protocol("tool done before tool start"))?;
+                events.extend(self.event(serde_json::json!({"type":"response.output_item.done","item":{"type":"function_call","call_id":call_id,"name":name,"arguments":event["arguments"]}}))?);
+            }
             "response.output_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                    let item = text_state.item(&event, None);
+                    let item = self.text_state.item(&event, None);
                     let part = event
                         .get("content_index")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    text_state.delta(item, part, delta);
+                    self.text_state.delta(item, part, delta);
                     events.push(CanonicalStreamEvent::TextDelta {
                         text: delta.to_string(),
                     });
@@ -281,12 +425,12 @@ pub fn parse_codex_sse_to_events(
             }
             "response.output_text.done" => {
                 if let Some(text) = event.get("text").and_then(Value::as_str) {
-                    let item = text_state.item(&event, None);
+                    let item = self.text_state.item(&event, None);
                     let part = event
                         .get("content_index")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    if let Some(delta) = text_state.finish(item, part, text)? {
+                    if let Some(delta) = self.text_state.finish(item, part, text)? {
                         events.push(delta);
                     }
                     events.push(CanonicalStreamEvent::TextDone {
@@ -294,23 +438,60 @@ pub fn parse_codex_sse_to_events(
                     });
                 }
             }
-            "response.completed" => {
+            "response.completed" | "response.incomplete" => {
+                if self.terminal {
+                    return Err(protocol("duplicate upstream terminal"));
+                }
+                self.terminal = true;
+                let limited = event_type == "response.incomplete";
+                if let Some(status) = event.pointer("/response/status").and_then(Value::as_str) {
+                    if status != if limited { "incomplete" } else { "completed" } {
+                        return Err(protocol("upstream terminal status contradicts event type"));
+                    }
+                }
+                if limited
+                    && event
+                        .pointer("/response/incomplete_details/reason")
+                        .and_then(Value::as_str)
+                        != Some("max_output_tokens")
+                {
+                    return Err(protocol("unsupported incomplete reason"));
+                }
+                if let Some(output) = event.pointer("/response/output").and_then(Value::as_array) {
+                    for (index, item) in output.iter().enumerate() {
+                        events.extend(self.event(serde_json::json!({"type":"response.output_item.done","output_index":index,"item":item}))?);
+                    }
+                }
+                if !limited
+                    && self
+                        .tool_state
+                        .keys()
+                        .any(|id| !self.finished_tools.contains(id))
+                {
+                    return Err(protocol("upstream completed with unfinished tool call"));
+                }
                 if let Some(usage) = event.get("response").and_then(|r| r.get("usage")) {
                     let input_tokens = usage
                         .get("input_tokens")
                         .and_then(Value::as_u64)
-                        .unwrap_or(0) as u32;
+                        .unwrap_or(0)
+                        .try_into()
+                        .map_err(|_| protocol("input usage exceeds supported counter range"))?;
                     let output_tokens = usage
                         .get("output_tokens")
                         .and_then(Value::as_u64)
-                        .unwrap_or(0) as u32;
+                        .unwrap_or(0)
+                        .try_into()
+                        .map_err(|_| protocol("output usage exceeds supported counter range"))?;
                     events.push(CanonicalStreamEvent::Usage {
                         input_tokens,
                         output_tokens,
                     });
                 }
                 events.push(CanonicalStreamEvent::Completed {
-                    finish_reason: Some(if saw_tool_use {
+                    finish_reason: Some(if limited {
+                        "max_tokens".to_string()
+                    } else if self.saw_tool_use {
                         "tool_use".to_string()
                     } else {
                         "stop".to_string()
@@ -337,13 +518,16 @@ pub fn parse_codex_sse_to_events(
             }
             _ => {}
         }
+        Ok(events)
     }
-    if events.is_empty() {
-        return Err(ProxyError::UpstreamProtocol {
-            message: "upstream returned success but no parsable stream events".to_string(),
-        });
-    }
-    Ok(events)
+}
+pub fn parse_codex_sse_to_events(
+    response_text: &str,
+) -> Result<Vec<CanonicalStreamEvent>, ProxyError> {
+    let mut parser = CodexSseParser::default();
+    let mut out = parser.feed(response_text.as_bytes())?;
+    out.extend(parser.finish()?);
+    Ok(out)
 }
 
 #[derive(Serialize)]
@@ -537,258 +721,126 @@ fn verbose_tracing_enabled() -> bool {
     )
 }
 
-pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> String {
-    let mut text_deltas = 0usize;
-    let mut tool_call_starts = 0usize;
-    let mut tool_call_deltas = 0usize;
-    let mut tool_call_dones = 0usize;
-    let mut completed_finish_reason: Option<String> = None;
-    for event in events {
-        match event {
-            CanonicalStreamEvent::TextDelta { .. } => text_deltas += 1,
-            CanonicalStreamEvent::ToolCallStart { .. } => tool_call_starts += 1,
-            CanonicalStreamEvent::ToolCallDelta { .. } => tool_call_deltas += 1,
-            CanonicalStreamEvent::ToolCallDone { .. } => tool_call_dones += 1,
-            CanonicalStreamEvent::Completed { finish_reason } => {
-                completed_finish_reason = finish_reason.clone()
-            }
-            _ => {}
+/// Stateful renderer shared by buffered callers and the pull-driven bridge.
+pub struct AnthropicSseEncoder {
+    model: String,
+    started: bool,
+    next: u32,
+    text: Option<u32>,
+    tools: std::collections::HashMap<String, u32>,
+    open: std::collections::BTreeSet<u32>,
+    input: u32,
+    output: u32,
+}
+fn frame(value: Value) -> String {
+    format!(
+        "event: {}\ndata: {}\n\n",
+        value["type"].as_str().unwrap(),
+        value
+    )
+}
+impl AnthropicSseEncoder {
+    pub fn new(model: &str) -> Self {
+        Self {
+            model: model.into(),
+            started: false,
+            next: 0,
+            text: None,
+            tools: Default::default(),
+            open: Default::default(),
+            input: 0,
+            output: 0,
         }
     }
-    log::warn!(
-        "[anthropic-render-summary] {}",
-        serde_json::json!({
-            "model": model,
-            "text_deltas": text_deltas,
-            "tool_call_starts": tool_call_starts,
-            "tool_call_deltas": tool_call_deltas,
-            "tool_call_dones": tool_call_dones,
-            "completed_finish_reason": completed_finish_reason,
-        })
-    );
-    let message_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
-    let mut out = String::new();
-    let mut final_stop_reason = "end_turn";
-    let mut message_stop_seen = false;
-    out.push_str(
-        "event: message_start
-",
-    );
-    out.push_str("data: ");
-    out.push_str(&json_string(&serde_json::json!({
-        "type":"message_start",
-        "message":{
-            "id":message_id,
-            "type":"message",
-            "role":"assistant",
-            "content":[],
-            "model":model,
-            "stop_reason":null,
-            "stop_sequence":null,
-            "usage":{"input_tokens":0,"output_tokens":0}
+    pub fn encode(&mut self, events: &[CanonicalStreamEvent]) -> String {
+        use serde_json::json;
+        let mut out = String::new();
+        if !events.is_empty() && !self.started {
+            self.started = true;
+            out += &frame(
+                json!({"type":"message_start","message":{"id":format!("msg_{}",uuid::Uuid::new_v4().simple()),"type":"message","role":"assistant","content":[],"model":self.model,"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}),
+            );
         }
-    })));
-    out.push_str(
-        "
-
-",
-    );
-
-    let mut current_block_index: Option<u32> = None;
-    let mut next_block_index = 0u32;
-    let mut saw_tool_use = false;
-    let mut tool_block_indices: std::collections::HashMap<String, u32> =
-        std::collections::HashMap::new();
-
-    for event in events {
-        match event {
-            CanonicalStreamEvent::TextDelta { text } => {
-                if current_block_index.is_none() {
-                    let block_index = next_block_index;
-                    next_block_index += 1;
-                    current_block_index = Some(block_index);
-                    out.push_str(
-                        "event: content_block_start
-",
-                    );
-                    out.push_str("data: ");
-                    out.push_str(&json_string(&serde_json::json!({
-                        "type":"content_block_start",
-                        "index":block_index,
-                        "content_block":{"type":"text","text":""}
-                    })));
-                    out.push_str(
-                        "
-
-",
+        for event in events {
+            match event {
+                CanonicalStreamEvent::TextDelta { text } => {
+                    let index = if let Some(index) = self.text {
+                        index
+                    } else {
+                        let index = self.next;
+                        self.next += 1;
+                        self.text = Some(index);
+                        self.open.insert(index);
+                        out += &frame(
+                            json!({"type":"content_block_start","index":index,"content_block":{"type":"text","text":""}}),
+                        );
+                        index
+                    };
+                    out += &frame(
+                        json!({"type":"content_block_delta","index":index,"delta":{"type":"text_delta","text":text}}),
                     );
                 }
-                let block_index = current_block_index.unwrap();
-                out.push_str(
-                    "event: content_block_delta
-",
-                );
-                out.push_str("data: ");
-                out.push_str(&json_string(&serde_json::json!({
-                    "type":"content_block_delta",
-                    "index":block_index,
-                    "delta":{"type":"text_delta","text":text}
-                })));
-                out.push_str(
-                    "
-
-",
-                );
-            }
-            CanonicalStreamEvent::ToolCallStart { call_id, name } => {
-                saw_tool_use = true;
-                if let Some(open_index) = current_block_index.take() {
-                    out.push_str(
-                        "event: content_block_stop
-",
-                    );
-                    out.push_str("data: ");
-                    out.push_str(&json_string(&serde_json::json!({
-                        "type":"content_block_stop",
-                        "index":open_index
-                    })));
-                    out.push_str(
-                        "
-
-",
-                    );
-                }
-                let block_index = next_block_index;
-                next_block_index += 1;
-                tool_block_indices.insert(call_id.clone(), block_index);
-                current_block_index = Some(block_index);
-                out.push_str(
-                    "event: content_block_start
-",
-                );
-                out.push_str("data: ");
-                out.push_str(&json_string(&serde_json::json!({
-                    "type":"content_block_start",
-                    "index":block_index,
-                    "content_block":{"type":"tool_use","id":call_id,"name":name,"input":{}}
-                })));
-                out.push_str(
-                    "
-
-",
-                );
-            }
-            CanonicalStreamEvent::ToolCallDelta {
-                call_id,
-                arguments_delta,
-            } => {
-                if let Some(block_index) = tool_block_indices.get(call_id) {
-                    out.push_str(
-                        "event: content_block_delta
-",
-                    );
-                    out.push_str("data: ");
-                    out.push_str(&json_string(&serde_json::json!({
-                        "type":"content_block_delta",
-                        "index":block_index,
-                        "delta":{"type":"input_json_delta","partial_json":arguments_delta}
-                    })));
-                    out.push_str(
-                        "
-
-",
-                    );
-                }
-            }
-            CanonicalStreamEvent::ToolCallDone { call_id, .. } => {
-                if let Some(block_index) = tool_block_indices.get(call_id) {
-                    out.push_str(
-                        "event: content_block_stop
-",
-                    );
-                    out.push_str("data: ");
-                    out.push_str(&json_string(&serde_json::json!({
-                        "type":"content_block_stop",
-                        "index":block_index
-                    })));
-                    out.push_str(
-                        "
-
-",
-                    );
-                    if current_block_index == Some(*block_index) {
-                        current_block_index = None;
+                CanonicalStreamEvent::ToolCallStart { call_id, name } => {
+                    if self.tools.contains_key(call_id) {
+                        continue;
                     }
-                }
-            }
-            CanonicalStreamEvent::Completed { finish_reason } => {
-                if let Some(open_index) = current_block_index.take() {
-                    out.push_str(
-                        "event: content_block_stop
-",
-                    );
-                    out.push_str("data: ");
-                    out.push_str(&json_string(&serde_json::json!({
-                        "type":"content_block_stop",
-                        "index":open_index
-                    })));
-                    out.push_str(
-                        "
-
-",
-                    );
-                }
-                let stop_reason = match finish_reason.as_deref() {
-                    Some("tool_use") => "tool_use",
-                    Some("max_tokens") => "max_tokens",
-                    Some("stop_sequence") => "stop_sequence",
-                    _ => {
-                        if saw_tool_use {
-                            "tool_use"
-                        } else {
-                            "end_turn"
+                    if let Some(index) = self.text.take() {
+                        if self.open.remove(&index) {
+                            out += &frame(json!({"type":"content_block_stop","index":index}));
                         }
                     }
-                };
-                final_stop_reason = stop_reason;
-                out.push_str(
-                    "event: message_delta
-",
-                );
-                out.push_str("data: ");
-                out.push_str(&json_string(&serde_json::json!({
-                    "type":"message_delta",
-                    "delta":{"stop_reason":stop_reason,"stop_sequence":null},
-                    "usage":{"output_tokens":0}
-                })));
-                out.push_str("\n\n");
-                out.push_str("event: message_stop\n");
-                out.push_str("data: {\"type\":\"message_stop\"}\n\n");
-                message_stop_seen = true;
+                    let index = self.next;
+                    self.next += 1;
+                    self.tools.insert(call_id.clone(), index);
+                    self.open.insert(index);
+                    out += &frame(
+                        json!({"type":"content_block_start","index":index,"content_block":{"type":"tool_use","id":call_id,"name":name,"input":{}}}),
+                    );
+                }
+                CanonicalStreamEvent::ToolCallDelta {
+                    call_id,
+                    arguments_delta,
+                } => {
+                    if let Some(index) = self.tools.get(call_id) {
+                        out += &frame(
+                            json!({"type":"content_block_delta","index":index,"delta":{"type":"input_json_delta","partial_json":arguments_delta}}),
+                        );
+                    }
+                }
+                CanonicalStreamEvent::ToolCallDone { call_id, .. } => {
+                    if let Some(index) = self.tools.get(call_id) {
+                        if self.open.remove(index) {
+                            out += &frame(json!({"type":"content_block_stop","index":index}));
+                        }
+                    }
+                }
+                CanonicalStreamEvent::Usage {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    self.input = *input_tokens;
+                    self.output = *output_tokens;
+                }
+                CanonicalStreamEvent::Completed { finish_reason } => {
+                    for index in std::mem::take(&mut self.open) {
+                        out += &frame(json!({"type":"content_block_stop","index":index}));
+                    }
+                    let reason = match finish_reason.as_deref() {
+                        Some("tool_use") => "tool_use",
+                        Some("max_tokens") => "max_tokens",
+                        _ => "end_turn",
+                    };
+                    out += &frame(
+                        json!({"type":"message_delta","delta":{"stop_reason":reason,"stop_sequence":null},"usage":{"input_tokens":self.input,"output_tokens":self.output}}),
+                    );
+                    out += &frame(json!({"type":"message_stop"}));
+                }
+                _ => {}
             }
-            _ => {}
         }
+        out
     }
-    if crate::verbose_tracing_enabled() {
-        log::warn!(
-            "[anthropic-wire-summary] {}",
-            serde_json::json!({
-                "text_blocks": if text_deltas > 0 { 1 } else { 0 },
-                "tool_use_blocks": tool_call_starts,
-                "input_json_delta_count": tool_call_deltas,
-                "final_stop_reason": final_stop_reason,
-                "message_stop_seen": message_stop_seen,
-            })
-        );
-        if tool_call_starts > 0 {
-            log::warn!("[tool-path-stage] anthropic_tool_use_rendered");
-        } else {
-            log::warn!("[tool-path-stage] anthropic_end_turn_rendered");
-        }
-    }
-    out
 }
-
-fn json_string(value: &serde_json::Value) -> String {
-    serde_json::to_string(value).unwrap()
+pub fn render_anthropic_sse(events: &[CanonicalStreamEvent], model: &str) -> String {
+    AnthropicSseEncoder::new(model).encode(events)
 }

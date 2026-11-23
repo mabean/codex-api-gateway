@@ -1,0 +1,52 @@
+{
+  "version": "2.1.329",
+  "platform": "darwin-arm64",
+  "binary_sha256": "8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550",
+  "ranges": [
+    {
+      "name": "decoder",
+      "start": 31777,
+      "end": 37779,
+      "sha256": "2e22924fede5444a955b4f8494179c4a42855d3c47162b16f7045cbc4bc6d0fc",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "binary_start": 292679270
+    },
+    {
+      "name": "accumulator",
+      "start": 98122,
+      "end": 108838,
+      "sha256": "d2df5eafaca539925d8d791c476e6386c1106ca144c0812a1f7728e584c4021f",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "binary_start": 292745615
+    },
+    {
+      "name": "messages",
+      "start": 120899,
+      "end": 123169,
+      "sha256": "7e0881972c455ef0e4118d2fa9b6e358a788eb71dedcca425b1d94c8a78157c1",
+      "module_id": 404,
+      "module": "/$bunfs/root/chunk-76t3g1yn.js",
+      "module_sha256": "9da56f9986ff89787d3172d35ac532120df79a284bc61b5aa1f818ca25b7ca04",
+      "binary_start": 292768392
+    }
+  ],
+  "adapters": [
+    "Original SDK makeRequest with local HTTP transport, bounded retry clock and explicit SDK status-error adapter",
+    "Native ToolSearch select branch, eL eligibility and lwi history; optional feature switches disabled, descriptor lookup and telemetry adapters",
+    "Original En validation/checkPermissions wrapper around a schema-validating and permission-controlled synthetic Read executor; no filesystem tool execution",
+    "SourceTextModule capability imports fail closed; cUt provider registry adapter includes synthetic Codex model"
+  ],
+  "sdk_profile": "2.1.329-macos-arm64.json",
+  "layers": [
+    "zi.create",
+    "zt.fromSSEResponse",
+    "cc",
+    "ff.createMessage",
+    "ff.finalMessage",
+    "ff.abort -> controller.signal -> fetch"
+  ]
+}
