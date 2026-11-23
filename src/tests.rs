@@ -19,6 +19,149 @@ use crate::{
 static ALIAS_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn p4_r1_accepts_only_exact_retain_all_context_noop() {
+    let base = serde_json::json!({"model":"gpt-6.2-sol","max_tokens":64,
+        "output_config":{"effort":"low"},"messages":[{"role":"user","content":"Read fixture"}],
+        "context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}});
+    let actual = crate::prepare_codex_anthropic_body(&serde_json::to_vec(&base).unwrap());
+    assert!(
+        actual.is_ok(),
+        "P4-R1 retain-all no-op rejected: {actual:?}"
+    );
+    for context in [
+        serde_json::json!({"edits":[{"type":"clear_thinking_20251015","keep":"all","extra":true}]}),
+        serde_json::json!({"edits":[{"type":"clear_thinking_20251015","keep":"none"}]}),
+        serde_json::json!({"edits":[{"type":"clear_thinking_20251015","keep":"all"},{"type":"clear_tool_uses_20250919"}]}),
+        serde_json::json!({"edits":[{"type":"clear_thinking_20251015","keep":"all"}],"extra":true}),
+        serde_json::json!({"edits":[]}),
+    ] {
+        let mut request = base.clone();
+        request["context_management"] = context;
+        assert!(
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&request).unwrap()).is_err()
+        );
+    }
+}
+
+#[test]
+fn p4_r2_discovery_authorization_is_internal_to_anthropic() {
+    let proxy = ProxyServer {
+        client: crate::build_http_client().unwrap(),
+        auth_data: crate::AuthData {
+            api_key: None,
+            access_token: None,
+            account_id: None,
+        },
+        upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+    };
+    let tool = serde_json::json!({"name":"ToolSearch","input_schema":{"type":"object"},
+        "_codex_client_discovery":true});
+    let chat: ChatCompletionsRequest = serde_json::from_value(serde_json::json!({
+        "model":"gpt-6.2-sol","messages":[{"role":"user","content":"hello"}],
+        "tools":[tool.clone(),{"type":"function","function":{"name":"ToolSearch","parameters":{"type":"object"}},"_codex_client_discovery":true}],"parallel_tool_calls":false,
+        "anthropic_controls":{"parallel_tool_calls":false}}))
+    .unwrap();
+    let chat = proxy.convert_chat_to_responses(chat).unwrap();
+    let responses: OpenAiResponsesRequest = serde_json::from_value(serde_json::json!({
+        "model":"gpt-6.2-sol","input":"hello","tools":[tool.clone()],"parallel_tool_calls":false}))
+    .unwrap();
+    let (_, responses) = proxy.convert_openai_responses_request(responses).unwrap();
+    assert_eq!(
+        (
+            chat.tools.len(),
+            chat.parallel_tool_calls,
+            responses["tools"].as_array().unwrap().len(),
+            responses["parallel_tool_calls"].as_bool()
+        ),
+        (0, true, 0, Some(false)),
+        "P4-R2 raw OpenAI compatibility changed"
+    );
+    let raw = serde_json::json!({"model":"gpt-6.2-sol","max_tokens":64,
+        "messages":[{"role":"user","content":"hello"}],"tools":[tool],
+        "tool_choice":{"type":"auto","disable_parallel_tool_use":true}});
+    let prepared = crate::prepare_codex_anthropic_body(&serde_json::to_vec(&raw).unwrap()).unwrap();
+    let request: AnthropicMessagesRequest = serde_json::from_slice(&prepared).unwrap();
+    let chat = proxy.convert_anthropic_to_chat(request).unwrap();
+    let actual = proxy.convert_chat_to_responses(chat).unwrap();
+    assert_eq!(actual.tools[0]["name"], "ToolSearch");
+    assert!(!actual.parallel_tool_calls);
+}
+
+#[test]
+fn codex_controls_preserve_effective_effort_and_reject_scope() {
+    for effort in ["low", "medium", "high", "xhigh"] {
+        let request = serde_json::json!({"model":"gpt-6.2-sol","max_tokens":64,
+            "output_config":{"effort":"low"},"messages":[{"role":"user","content":"hello"},
+              {"role":"system","content":[],"output_config":{"effort":effort}}]});
+        let normalized =
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+        assert_eq!(value["output_config"]["effort"], effort);
+        assert_eq!(value["messages"][1]["content"], "");
+    }
+    for extension in [
+        serde_json::json!({"output_config":{"effort":"max"}}),
+        serde_json::json!({"output_config":{"effort":false}}),
+        serde_json::json!({"output_config":{"format":{"type":"json_schema"}}}),
+        serde_json::json!({"context_management":{"edits":[]}}),
+        serde_json::json!({"tool_choice":{"type":"auto","disable_parallel_tool_use":"false"}}),
+    ] {
+        let mut request = serde_json::json!({"model":"gpt-6.2-sol","messages":[{"role":"user","content":"hello"}]});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(extension.as_object().unwrap().clone());
+        assert!(
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&request).unwrap()).is_err()
+        );
+    }
+    for control in [
+        serde_json::json!({"role":"system","content":[],"clear_at":"next_user_message"}),
+        serde_json::json!({"role":"system","content":"scoped"}),
+    ] {
+        let request = serde_json::json!({"messages":[{"role":"user","content":"hello"},control]});
+        assert!(
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&request).unwrap()).is_err()
+        );
+    }
+}
+
+#[test]
+fn codex_discovery_requires_declared_supported_correlated_reference() {
+    let base = serde_json::json!({"tools":[{"name":"ToolSearch","input_schema":{"type":"object"}},
+        {"name":"Read","defer_loading":true,"input_schema":{"type":"object","required":["file_path"]}}],
+        "messages":[{"role":"user","content":"hello"},
+          {"role":"assistant","content":[{"type":"tool_use","id":"search","name":"ToolSearch","input":{"query":"select:Read"}}]},
+          {"role":"user","content":[{"type":"tool_result","tool_use_id":"search","content":[
+            {"type":"text","text":"before"},{"type":"tool_reference","tool_name":"Read"},{"type":"text","text":"after"}]}]}]});
+    let bytes = crate::prepare_codex_anthropic_body(&serde_json::to_vec(&base).unwrap()).unwrap();
+    let actual: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(actual["tools"][1]["name"], "Read");
+    let parts = &actual["messages"][2]["content"][0]["content"];
+    assert_eq!(parts[0]["text"], "before");
+    assert!(parts[1]["text"].as_str().unwrap().contains("parameters"));
+    assert_eq!(parts[2]["text"], "after");
+    for (field, value) in [
+        ("tool_name", "NotebookEdit"),
+        ("tool_name", "Write"),
+        ("tool_use_id", "other"),
+    ] {
+        let mut request = base.clone();
+        if field == "tool_name" {
+            request["messages"][2]["content"][0]["content"][1][field] = serde_json::json!(value);
+        } else {
+            request["messages"][2]["content"][0][field] = serde_json::json!(value);
+        }
+        assert!(
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&request).unwrap()).is_err()
+        );
+    }
+}
+
+#[test]
 fn direct_anthropic_preserves_scoped_controls_and_extensions() {
     let _guard = ALIAS_ENV_LOCK.lock().unwrap();
     clear_alias_env();
@@ -958,6 +1101,7 @@ fn chat_request_requires_messages() {
         stream: Some(false),
         tools: None,
         reasoning_effort: None,
+        anthropic_controls: None,
         tool_choice: None,
     };
 
@@ -1052,6 +1196,7 @@ fn convert_chat_to_responses_supports_array_message_content() {
         stream: Some(false),
         tools: None,
         reasoning_effort: None,
+        anthropic_controls: None,
         tool_choice: None,
     };
 
@@ -1093,6 +1238,7 @@ fn convert_chat_to_responses_preserves_assistant_history() {
         stream: Some(false),
         tools: None,
         reasoning_effort: None,
+        anthropic_controls: None,
         tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
@@ -1172,6 +1318,7 @@ fn anthropic_tool_result_blocks_become_function_call_output_items() {
         stream: Some(false),
         tools: None,
         reasoning_effort: None,
+        anthropic_controls: None,
         tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
@@ -1348,6 +1495,7 @@ fn anthropic_assistant_tool_use_blocks_become_codex_function_call_items() {
         stream: Some(false),
         tools: None,
         reasoning_effort: None,
+        anthropic_controls: None,
         tool_choice: None,
     };
     let converted = proxy.convert_chat_to_responses(req).unwrap();
@@ -1382,7 +1530,7 @@ fn normalize_tools_for_codex_sets_strict_and_additional_properties_false() {
             }
         }
     })];
-    let normalized = crate::normalize_tools_for_codex(tools);
+    let normalized = crate::normalize_tools_for_codex(tools, crate::CodexToolSource::OpenAi);
     let tool = &normalized[0];
     assert_eq!(tool["strict"].as_bool(), Some(false));
     assert_eq!(

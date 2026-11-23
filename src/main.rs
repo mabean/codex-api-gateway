@@ -652,7 +652,20 @@ struct ChatCompletionsRequest {
     stream: Option<bool>,
     tools: Option<Vec<Value>>,
     reasoning_effort: Option<String>,
+    #[serde(skip)]
+    anthropic_controls: Option<AnthropicCodexControls>,
     tool_choice: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct AnthropicCodexControls {
+    parallel_tool_calls: Option<bool>,
+}
+
+#[derive(Clone, Copy)]
+enum CodexToolSource {
+    OpenAi,
+    Anthropic,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1219,7 +1232,20 @@ impl ProxyServer {
             messages,
             stream: anthropic_req.stream,
             tools: anthropic_req.tools,
-            reasoning_effort: None,
+            reasoning_effort: anthropic_req
+                .extra
+                .get("output_config")
+                .and_then(|config| config.get("effort"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            anthropic_controls: Some(AnthropicCodexControls {
+                parallel_tool_calls: anthropic_req
+                    .extra
+                    .get("tool_choice")
+                    .and_then(|choice| choice.get("disable_parallel_tool_use"))
+                    .and_then(Value::as_bool)
+                    .map(|disabled| !disabled),
+            }),
             tool_choice: anthropic_req.extra.get("tool_choice").and_then(|choice| {
                 match choice.get("type").and_then(Value::as_str) {
                     Some("auto") => Some(json!("auto")),
@@ -1310,7 +1336,13 @@ impl ProxyServer {
                 instructions.chars().take(1200).collect::<String>()
             );
         }
-        let normalized_tools = normalize_tools_for_codex(chat_req.tools.unwrap_or_default());
+        let tool_source = if chat_req.anthropic_controls.is_some() {
+            CodexToolSource::Anthropic
+        } else {
+            CodexToolSource::OpenAi
+        };
+        let normalized_tools =
+            normalize_tools_for_codex(chat_req.tools.unwrap_or_default(), tool_source);
         if verbose_tracing_enabled() {
             let tool_debug_summary: Vec<Value> = normalized_tools
                 .iter()
@@ -1364,7 +1396,10 @@ impl ProxyServer {
                     choice
                 })
                 .unwrap_or_else(|| json!("auto")),
-            parallel_tool_calls: true,
+            parallel_tool_calls: chat_req
+                .anthropic_controls
+                .and_then(|controls| controls.parallel_tool_calls)
+                .unwrap_or(true),
             reasoning: chat_req
                 .reasoning_effort
                 .map(|effort| json!({"effort": effort})),
@@ -1388,7 +1423,8 @@ impl ProxyServer {
         }
         let input = normalize_openai_responses_input(req.input)?;
         let model = normalize_codex_model_id(&req.model);
-        let normalized_tools = normalize_tools_for_codex(req.tools.unwrap_or_default());
+        let normalized_tools =
+            normalize_tools_for_codex(req.tools.unwrap_or_default(), CodexToolSource::OpenAi);
         let mut payload = json!({
             "model": model,
             "instructions": req.instructions.unwrap_or_else(|| "You are a helpful AI assistant. Provide clear, accurate, and concise responses to user questions and requests.".to_string()),
@@ -2201,6 +2237,197 @@ fn append_anthropic_system_value(system: Option<Value>, value: Value) -> Value {
     Value::Array(blocks)
 }
 
+// Inspect controls before the narrow typed ingress can discard their scope.
+// Discovery is request-local evidence, never permission to execute a tool.
+fn prepare_codex_anthropic_body(body: &[u8]) -> Result<Vec<u8>, ProxyError> {
+    let mut request: Value = serde_json::from_slice(body).map_err(ProxyError::invalid_json)?;
+    let invalid = |field: &str, message: &str| ProxyError::Validation {
+        field: Some(field.to_owned()),
+        message: format!("Codex translation cannot preserve {message}"),
+    };
+    let read_effort = |config: &Value| -> Result<Option<String>, ProxyError> {
+        let object = config
+            .as_object()
+            .ok_or_else(|| invalid("output_config", "non-object output controls"))?;
+        if object.keys().any(|key| key != "effort") {
+            return Err(invalid(
+                "output_config",
+                "format or unknown output controls",
+            ));
+        }
+        match object.get("effort") {
+            None => Ok(None),
+            Some(Value::String(effort))
+                if ["low", "medium", "high", "xhigh"].contains(&effort.as_str()) =>
+            {
+                Ok(Some(effort.clone()))
+            }
+            _ => Err(invalid(
+                "output_config.effort",
+                "this effort value; supported values are low, medium, high, xhigh",
+            )),
+        }
+    };
+    // The original client's _Bn builder emits this retain-all no-op for
+    // ordinary thinking requests. Any added field/edit changes its semantics.
+    if request.get("context_management").is_some_and(|context| {
+        context
+            != &json!({
+                "edits":[{"type":"clear_thinking_20251015","keep":"all"}]
+            })
+    }) {
+        return Err(invalid("context_management", "context editing controls"));
+    }
+    let mut effort = request
+        .get("output_config")
+        .map(&read_effort)
+        .transpose()?
+        .flatten();
+    let declarations = request
+        .get("tools")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let supported = |name: &str| ["Read", "Write", "Bash", "Edit"].contains(&name);
+    let discovery = declarations.iter().any(|tool| tool["name"] == "ToolSearch");
+    let mut active = std::collections::HashSet::<String>::new();
+    let mut searches = std::collections::HashSet::<String>::new();
+    let messages = request
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| invalid("messages", "missing message history"))?;
+    let mut saw_conversation = false;
+    for message in messages.iter_mut() {
+        if message["role"] == "system" {
+            if message.get("clear_at").is_some() {
+                return Err(invalid("messages[].clear_at", "temporary system scope"));
+            }
+            if let Some(config) = message.get("output_config") {
+                if let Some(value) = read_effort(config)? {
+                    effort = Some(value);
+                }
+            }
+            let empty = message["content"].as_array().is_some_and(Vec::is_empty);
+            if saw_conversation && !empty {
+                return Err(invalid(
+                    "messages[].content",
+                    "system content inserted within conversation history",
+                ));
+            }
+            if empty {
+                message["content"] = json!("");
+            }
+            continue;
+        }
+        saw_conversation = true;
+        if message.get("output_config").is_some() || message.get("clear_at").is_some() {
+            return Err(invalid("messages[]", "controls on non-system messages"));
+        }
+        let assistant = message["role"] == "assistant";
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for block in blocks {
+            if assistant && block["type"] == "tool_use" && block["name"] == "ToolSearch" {
+                let id = block["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| invalid("messages[].content", "discovery call without ID"))?;
+                if !discovery || !searches.insert(id.to_owned()) {
+                    return Err(invalid(
+                        "messages[].content",
+                        "undeclared or duplicate discovery call",
+                    ));
+                }
+            }
+            if block["type"] != "tool_result" {
+                continue;
+            }
+            let correlated = !assistant
+                && block["tool_use_id"]
+                    .as_str()
+                    .is_some_and(|id| searches.remove(id));
+            let Some(parts) = block.get_mut("content").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            for part in parts {
+                if part["type"] != "tool_reference" {
+                    continue;
+                }
+                let name = part["tool_name"]
+                    .as_str()
+                    .ok_or_else(|| invalid("tool_reference", "missing tool name"))?;
+                let declaration = declarations.iter().find(|tool| tool["name"] == name);
+                if !correlated || !supported(name) || declaration.is_none() {
+                    return Err(invalid(
+                        "tool_reference",
+                        "unrelated, undeclared or unsupported discovered tool",
+                    ));
+                }
+                let declaration = declaration.expect("checked declaration");
+                if !declaration
+                    .get("input_schema")
+                    .is_some_and(Value::is_object)
+                {
+                    return Err(invalid(
+                        "tool_reference",
+                        "discovered tool without declared schema",
+                    ));
+                }
+                active.insert(name.to_owned());
+                let definition = json!({"description":declaration.get("description"),
+                    "name":name,"parameters":declaration["input_schema"]});
+                *part = json!({"type":"text", "text":format!("<functions>\n<function>{definition}</function>\n</functions>")});
+            }
+        }
+    }
+    if let Some(effort) = effort {
+        request["output_config"] = json!({"effort":effort});
+    }
+    let mut tools = Vec::new();
+    for tool in declarations {
+        let name = tool["name"].as_str().unwrap_or_default();
+        if name == "ToolSearch"
+            || (supported(name)
+                && (tool.get("defer_loading") != Some(&json!(true)) || active.contains(name)))
+        {
+            tools.push(tool);
+        }
+    }
+    if let Some(choice) = request.get("tool_choice") {
+        let object = choice
+            .as_object()
+            .ok_or_else(|| invalid("tool_choice", "non-object tool selection"))?;
+        if object
+            .keys()
+            .any(|key| !["type", "name", "disable_parallel_tool_use"].contains(&key.as_str()))
+            || object
+                .get("disable_parallel_tool_use")
+                .is_some_and(|value| !value.is_boolean())
+        {
+            return Err(invalid(
+                "tool_choice",
+                "unknown or malformed tool selection controls",
+            ));
+        }
+        match choice["type"].as_str() {
+            Some("auto" | "none" | "any") if choice.get("name").is_none() => {}
+            Some("tool")
+                if choice["name"]
+                    .as_str()
+                    .is_some_and(|name| tools.iter().any(|tool| tool["name"] == name)) => {}
+            _ => {
+                return Err(invalid(
+                    "tool_choice",
+                    "malformed selection or unavailable tool name",
+                ))
+            }
+        }
+    }
+    request["tools"] = json!(tools);
+    serde_json::to_vec(&request).map_err(ProxyError::invalid_json)
+}
+
 fn hoist_anthropic_system_messages(req: &mut AnthropicMessagesRequest) {
     let mut system = req.system.take();
     let mut messages = Vec::with_capacity(req.messages.len());
@@ -2861,7 +3088,7 @@ fn normalize_tool_parameters_schema(schema: Value) -> Value {
     }
 }
 
-fn normalize_tools_for_codex(tools: Vec<Value>) -> Vec<Value> {
+fn normalize_tools_for_codex(tools: Vec<Value>, source: CodexToolSource) -> Vec<Value> {
     let allowed_names = ["Edit", "Read", "Write", "Bash"];
     tools
         .into_iter()
@@ -2895,7 +3122,9 @@ fn normalize_tools_for_codex(tools: Vec<Value>) -> Vec<Value> {
                 })
             };
             let name = normalized.get("name").and_then(Value::as_str)?;
-            if allowed_names.contains(&name) {
+            if allowed_names.contains(&name)
+                || (name == "ToolSearch" && matches!(source, CodexToolSource::Anthropic))
+            {
                 Some(normalized)
             } else {
                 None
@@ -3351,11 +3580,21 @@ async fn universal_request_handler(
                     not_found_response(ApiFamily::Anthropic)
                 });
             }
-            let mut anthropic_req = match serde_json::from_slice::<AnthropicMessagesRequest>(&body)
-            {
-                Ok(req) => req,
-                Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
+            let codex_body;
+            let typed_body = if direct_route == AnthropicModelRoute::Codex {
+                codex_body = match prepare_codex_anthropic_body(&body) {
+                    Ok(body) => body,
+                    Err(error) => return Ok(anthropic_error_response(error)),
+                };
+                codex_body.as_slice()
+            } else {
+                body.as_ref()
             };
+            let mut anthropic_req =
+                match serde_json::from_slice::<AnthropicMessagesRequest>(typed_body) {
+                    Ok(req) => req,
+                    Err(err) => return Ok(anthropic_error_response(ProxyError::invalid_json(err))),
+                };
             let requested_model = anthropic_req.model.clone();
             let (directive_model, route) = if direct_route == AnthropicModelRoute::Anthropic {
                 (None, direct_route)

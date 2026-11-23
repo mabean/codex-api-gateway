@@ -86,6 +86,24 @@ The printed temporary evidence directory contains manifests, source ranges, synt
 
 P2 is a historical known-gap suite: after the P3 forwarding repair, run it only with a preserved pre-repair binary. Its old-gap expectations intentionally fail against repaired behavior. Use the positive P3 suite below for the current direct Anthropic contract; do not weaken P2 assertions.
 
+## Offline positive Codex translation contract (P4)
+
+Use the same local pinned Claude Code 2.1.329 macOS arm64 binary, Node with `vm.SourceTextModule`, Python 3 and a prebuilt gateway. No dependencies are downloaded by this command:
+
+```bash
+python3 -B scripts/claude_contract_p4.py --binary /opt/homebrew/bin/claude --gateway target/release/codex-api-gateway
+```
+
+All 31 cases are mandatory. Original SDK serialization, retry orchestration and terminal accumulation cross real localhost HTTP. Original `SXn` shapes turn controls. Native `l4o.create(...).call(...)` selects deferred Read, its mapper creates references, `eL` establishes eligibility and `lwi` consumes reference history. Original schema/input validation and `En` permission wrappers surround an explicit synthetic Read executor. Denial must execute zero times; allowance executes once, returning exact correlated content and terminal text. Legacy Read runs separately with low effort and the original pinned `_Bn` builder's retain-all context setting on both turns. Every unsupported semantic control must produce one terminal structured 400 and zero upstream requests; original effort/scope downgrade predicates remain false.
+
+The runner prints `local evidence: ...` and writes manifests, checked source spans, wire receipts and `result.json` there. Raw extracted code and traces stay temporary. It uses the P1 OS loopback sandbox, synthetic credentials, blocked credential canary and redirects, isolated profiles, bounded deadlines and owned cleanup. Check intentional failure separately:
+
+```bash
+python3 -B scripts/claude_contract_p4.py --binary /opt/homebrew/bin/claude --gateway target/release/codex-api-gateway --fail-after-start
+```
+
+This must exit 1, record an `intentional` error in `result.json`, and set `owned_process_cleanup`, `owned_ports_closed`, and `unrelated_listener_alive` to true. Unknown fingerprints, missing cases/functions and unavailable capabilities fail closed. Run P1/P3 plus the complete CI baseline as regressions. [P4 verification](docs/claude-code-p4-verification-2026-11-21.md) records adapters, original-versus-repaired observations and provider limits; neither local success nor `/health` proves live access.
+
 `--fail-after-start` deliberately fails after starting owned services to verify failure cleanup; expect exit 1 and `owned_ports_closed`, `owned_process_cleanup`, and `unrelated_listener_alive` all true. Both normal and failure paths stop only this run's processes; no process-name matching or port-wide cleanup is used. Every isolated worker has a deadline and an owned process group for timeout cleanup.
 
 ## Offline positive Anthropic forwarding contract (P3)

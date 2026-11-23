@@ -1,5 +1,9 @@
 # Threat model
 
+P4 discovery boundary (2026-11-21): Codex-bound ToolSearch results activate only supported declared schemas through a preceding discovery call with a correlated ID. Unsupported and unrelated references fail before upstream traffic. The gateway stores no conversation discovery state and runs no tool. Client validation and permission enforcement remain separate from schema discovery. Local evidence uses extracted client wrappers and a synthetic executor with explicit allow/deny decisions; it does not establish real provider entitlement or production permission policy. See [P4 verification](docs/claude-code-p4-verification-2026-11-21.md).
+
+P4-R2 repair: public JSON cannot create the typed Messages discovery authorization. Chat/Responses keep their existing executor allowlist even when a tool supplies the obsolete internal-looking marker. Messages-specific parallel controls also remain internal, preserving the public Chat behavior.
+
 ## Scope
 
 The supported deployment is one gateway process on the same trusted machine as one user. The gateway reads local credentials, accepts requests from local clients, and forwards them to configured upstream services.

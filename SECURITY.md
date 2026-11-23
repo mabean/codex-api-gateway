@@ -31,6 +31,10 @@ Live verification scripts enable gateway verbose mode by default. See [BUILD.md]
 
 The process listens on localhost and connects to the configured Codex/ChatGPT and Anthropic upstreams. Changing either upstream base URL changes the trust boundary: the new destination may receive authentication headers and user content.
 
+Codex ToolSearch translation accepts request-local discovery evidence only for declared Bash/Edit/Read/Write schemas. A matching tool-use ID activates a deferred declaration; arbitrary schema text does not. Discovery does not grant execution permission: the client owns validation, permission decisions and execution. The P4 harness exercises original client wrappers with a synthetic fixture executor, including denial with zero executions; it does not execute a production file or shell tool.
+
+Discovery authorization is typed internal Messages state excluded from JSON deserialization. Public Chat/Responses tool objects cannot opt into discovery through `_codex_client_discovery` or other caller-supplied flags; they retain the four executor names.
+
 The direct Anthropic Messages and count-tokens routes share credential resolution and the configured upstream origin. Only the supported `beta=true` query is forwarded. Upstream responses expose an allowlist: `content-type`, `Retry-After`, `retry-after-ms`, `x-should-retry`, `request-id` and `anthropic-ratelimit-unified-*`. `Connection`-nominated headers are excluded even when otherwise allowed. Cookies, arbitrary upstream headers and hop-by-hop headers are not relayed. Direct JSON fidelity preserves client fields without treating their content as gateway configuration. OAuth attribution is preserved when supplied; count-tokens does not receive a synthetic Messages prompt.
 
 ## Security-relevant changes

@@ -21,6 +21,10 @@ This project originally started from [Securiteru/codex-openai-proxy](https://git
 
 The gateway supports JSON and streaming responses, Claude Code text flows, and the core `Edit`, `Read`, `Write`, and `Bash` tool loop.
 
+For Codex-bound Anthropic Messages, `ToolSearch` is a client-side discovery mechanism for that same tool set. Deferred declarations become available after a preceding declared ToolSearch call and correlated result references a supported declared tool; references become schema-bearing text outputs. The gateway executes no tools. Unsupported, undeclared or unrelated references receive a structured 400.
+
+Codex Messages translate `output_config.effort` values `low`, `medium`, `high` and `xhigh`, including the last system effort statement for the turn and empty effort-only content. Absence retains existing defaults. Temporary system scope (`clear_at`) and system content inserted within conversation history receive a terminal structured 400. Tool selection supports omitted/`auto`, `none`, `any`, or a named active tool, with boolean `disable_parallel_tool_use` inverted for Codex. The client's exact `context_management: {"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}` is accepted as a retain-all no-op. Other context settings, unsupported effort, output formats and unknown output controls receive explicit refusals. These discovery and parallel controls apply to Anthropic Messages; public Chat and Responses retain their existing tool allowlist and parallel behavior. Cache markers have no Codex cache guarantee; Anthropic signed thinking cannot be synthesized. See [the local P4 contract and limits](docs/claude-code-p4-verification-2026-11-21.md).
+
 Requests to `/v1/messages` are routed as follows:
 
 - `claude-*` models go to the Anthropic upstream.

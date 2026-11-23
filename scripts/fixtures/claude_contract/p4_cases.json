@@ -1,0 +1,128 @@
+{
+  "cases": [
+    {
+      "id": "effort_low",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_medium",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_high",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_xhigh",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_override",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_only",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "effort_followup",
+      "expected": "Exact translated effective effort and explicit parallel control"
+    },
+    {
+      "id": "effort_absent",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "scope_first",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "scope_followup",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "mid_history",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "bad_effort",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "max_effort",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "format",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "context",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "format_context",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "unknown_output",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "choice_auto",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "choice_none",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "choice_any",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "choice_named",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "choice_parallel",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "choice_parallel_false",
+      "expected": "Exact translated effective effort and explicit parallel control"
+    },
+    {
+      "id": "choice_bad",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "choice_unavailable",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "choice_malformed",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "discovery_chain",
+      "expected": "Exact translated controls or correlated native tool lifecycle and terminal result"
+    },
+    {
+      "id": "legacy_read",
+      "expected": "Original _Bn retain-all context setting and low effort allow legacy Read first and followup turns, correlated result and terminal text"
+    },
+    {
+      "id": "unsupported_reference",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "undeclared_reference",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    },
+    {
+      "id": "unrelated_reference",
+      "expected": "Explicit terminal structured refusal without upstream traffic"
+    }
+  ]
+}
