@@ -1,0 +1,698 @@
+{
+  "cases": [
+    {
+      "id": "replay_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "replay_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "nested",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "strict_default",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "defaults",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "object_input",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "scalar_input",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "unknown_temperature",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "toolsearch",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "chat_allowlist",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "messages_allowlist",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "store_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "store_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "previous_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "previous_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "previous_null_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "previous_null_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "metadata_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "metadata_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "metadata_null_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "metadata_null_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "truncation_null_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "truncation_null_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "top_p_null_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "top_p_null_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "user_null_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "user_null_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "unsupported_tool_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "unsupported_tool_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_name_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_name_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_strict_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_strict_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_schema_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_schema_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "missing_choice_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "missing_choice_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_parallel_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_parallel_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_tier_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_tier_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_include_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_include_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_cache_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_cache_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_reasoning_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_reasoning_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_text_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "bad_text_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_56_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_56_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_62_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_62_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_manifest_json",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "temperature_manifest_stream",
+      "criterion": "C3-AC1..AC4",
+      "expected_c2": "Recorded legacy payload or rejection without param",
+      "expected_c3": "Validated profile, exact native options/replay or field error and zero upstream"
+    },
+    {
+      "id": "r1_null_instructions_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_instructions_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_prompt_cache_key_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_prompt_cache_key_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_service_tier_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_service_tier_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_store_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_store_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_stream_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_stream_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_parallel_tool_calls_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_parallel_tool_calls_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_temperature_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_temperature_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_tools_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_tools_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_include_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_include_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_reasoning_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_reasoning_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_text_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_text_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_tool_choice_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_null_tool_choice_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_context_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_context_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_mode_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_mode_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_summary_off_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_summary_off_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_summary_on_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_summary_on_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_inner_null_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_inner_null_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_text_null_json",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r1_text_null_stream",
+      "criterion": "C3-R1",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_flat_null_json",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_flat_null_stream",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_nested_null_json",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_nested_null_stream",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_nested_missing_json",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r2_nested_missing_stream",
+      "criterion": "C3-R2",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_dated_json",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_dated_stream",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_folded_json",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_folded_stream",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_trimmed_json",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_trimmed_stream",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_unknown_dated_json",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_unknown_dated_stream",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_invalid_suffix_json",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    },
+    {
+      "id": "r3_invalid_suffix_stream",
+      "criterion": "C3-R3",
+      "expected_c2": "Excluded from original C2 comparison",
+      "expected_initial_c3": "Preserve frozen initial rejection or payload",
+      "expected_c3": "Accept compatible options/functions or reject normalized known temperature identity"
+    }
+  ]
+}

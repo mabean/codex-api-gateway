@@ -66,7 +66,7 @@ fn p4_r2_discovery_authorization_is_internal_to_anthropic() {
     .unwrap();
     let chat = proxy.convert_chat_to_responses(chat).unwrap();
     let responses: OpenAiResponsesRequest = serde_json::from_value(serde_json::json!({
-        "model":"gpt-6.2-sol","input":"hello","tools":[tool.clone()],"parallel_tool_calls":false}))
+        "model":"gpt-6.2-sol","input":"hello","tools":[{"type":"function","name":"ToolSearch","parameters":{"type":"object"},"_codex_client_discovery":true}],"parallel_tool_calls":false}))
     .unwrap();
     let (_, responses) = proxy.convert_openai_responses_request(responses).unwrap();
     assert_eq!(
@@ -76,7 +76,7 @@ fn p4_r2_discovery_authorization_is_internal_to_anthropic() {
             responses["tools"].as_array().unwrap().len(),
             responses["parallel_tool_calls"].as_bool()
         ),
-        (0, true, 0, Some(false)),
+        (0, true, 1, Some(false)),
         "P4-R2 raw OpenAI compatibility changed"
     );
     let raw = serde_json::json!({"model":"gpt-6.2-sol","max_tokens":64,
@@ -1585,6 +1585,158 @@ fn normalize_openai_responses_input_requires_value() {
 }
 
 #[test]
+fn responses_validation_preserves_null_summary_and_rejects_field_presence() {
+    for field in [
+        "previous_response_id",
+        "metadata",
+        "truncation",
+        "top_p",
+        "user",
+    ] {
+        let mut request = serde_json::json!({"model":"gpt-5.4","input":"hello"});
+        request[field] = serde_json::Value::Null;
+        let error =
+            crate::parse_responses_request(&serde_json::to_vec(&request).unwrap()).unwrap_err();
+        assert!(
+            matches!(error, ProxyError::Validation { field: Some(actual), .. } if actual == field)
+        );
+    }
+    let req = crate::parse_responses_request(
+        br#"{"model":"gpt-5.4","input":"hi","reasoning":{"effort":"low","summary":null}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        req.reasoning.unwrap(),
+        serde_json::json!({"effort":"low","summary":null})
+    );
+}
+
+#[test]
+fn responses_url_and_temperature_policy_are_bounded() {
+    for suffix in ["", "/codex", "/codex/responses", "/codex/responses///"] {
+        assert_eq!(
+            crate::codex_responses_url(&format!("http://127.0.0.1:1/tenant/backend-api{suffix}")),
+            "http://127.0.0.1:1/tenant/backend-api/codex/responses"
+        );
+    }
+    for model in [
+        "openai/gpt-5.6",
+        "gpt-5.6-terra",
+        "gpt-6.2-sol",
+        "gpt-daybreak-red-latest",
+    ] {
+        assert!(crate::responses_temperature_denied(
+            &normalize_codex_model_id(model)
+        ));
+    }
+    for model in ["future-model", "gpt-6.99-unknown", "gpt-5.4"] {
+        assert!(!crate::responses_temperature_denied(model));
+    }
+}
+
+#[test]
+fn c3_r1_nullable_controls_and_reasoning_shapes_remain_compatible() {
+    let optional = [
+        "instructions",
+        "prompt_cache_key",
+        "service_tier",
+        "store",
+        "stream",
+        "parallel_tool_calls",
+        "temperature",
+        "tools",
+        "include",
+        "reasoning",
+        "text",
+        "tool_choice",
+    ];
+    for field in optional {
+        let mut request = serde_json::json!({"model":"gpt-5.4","input":"fixture"});
+        request[field] = serde_json::Value::Null;
+        crate::parse_responses_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        request[field] = serde_json::json!(42);
+        assert!(
+            crate::parse_responses_request(&serde_json::to_vec(&request).unwrap()).is_err()
+                || matches!(field, "temperature" | "tool_choice")
+        );
+    }
+    for summary in ["off", "on", "auto"] {
+        let reasoning = serde_json::json!({"effort":null,"context":"all_turns","mode":"standard","summary":summary});
+        let request =
+            serde_json::json!({"model":"gpt-5.4","input":"fixture","reasoning":reasoning});
+        let parsed =
+            crate::parse_responses_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert_eq!(parsed.reasoning.unwrap(), reasoning);
+    }
+    assert!(crate::parse_responses_request(br#"{"model":null,"input":"fixture"}"#).is_err());
+    assert!(crate::normalize_responses_choice(Some(serde_json::json!(42)), &[]).is_err());
+}
+
+#[test]
+fn c3_r2_preserves_native_nulls_and_nested_empty_schema_compatibility() {
+    let flat =
+        serde_json::json!({"type":"function","name":"Read","parameters":null,"description":null});
+    let tools = crate::normalize_responses_tools(vec![flat.clone()]).unwrap();
+    assert!(tools[0]["parameters"].is_null());
+    assert!(tools[0]["description"].is_null());
+    for declaration in [
+        serde_json::json!({"name":"Read"}),
+        serde_json::json!({"name":"Read","parameters":null}),
+    ] {
+        let tools = crate::normalize_responses_tools(vec![
+            serde_json::json!({"type":"function","function":declaration}),
+        ])
+        .unwrap();
+        assert_eq!(
+            tools[0]["parameters"],
+            serde_json::json!({"type":"object","properties":{}})
+        );
+    }
+    let mut invalid = flat;
+    invalid["strict"] = serde_json::Value::Null;
+    assert!(crate::normalize_responses_tools(vec![invalid]).is_err());
+}
+
+#[test]
+fn c3_r3_temperature_identity_normalization_does_not_expand_unknown_policy() {
+    for id in [
+        "openai/gpt-6.2-sol-2026-11-17",
+        "GPT-6.2-SOL",
+        "  OPENAI/GPT-6.2-SOL  ",
+    ] {
+        assert!(crate::responses_temperature_denied(id));
+    }
+    for id in [
+        "future-model-2026-11-17",
+        "gpt-6.2-sol-2026-1-17",
+        "gpt-6.3-sol-2026-11-17",
+    ] {
+        assert!(!crate::responses_temperature_denied(id));
+    }
+}
+
+#[test]
+fn responses_functions_preserve_schema_strict_and_validate_named_choice() {
+    let tool = serde_json::json!({"type":"function","name":"arbitrary_42","parameters":{"type":"object","additionalProperties":false},"strict":true});
+    let tools = crate::normalize_responses_tools(vec![tool.clone()]).unwrap();
+    assert_eq!(tools, vec![tool]);
+    assert!(crate::normalize_responses_choice(
+        Some(serde_json::json!({"type":"function","name":"missing"})),
+        &tools
+    )
+    .is_err());
+    let tools = crate::normalize_responses_tools(vec![
+        serde_json::json!({"type":"function","function":{"name":"nested","strict":false}}),
+    ])
+    .unwrap();
+    assert_eq!(tools[0]["strict"], false);
+    assert_eq!(tools[0]["name"], "nested");
+    assert!(
+        crate::normalize_responses_tools(vec![serde_json::json!({"type":"web_search"})]).is_err()
+    );
+}
+
+#[test]
 fn convert_openai_responses_request_normalizes_model_and_tools() {
     let proxy = ProxyServer {
         client: crate::build_http_client().unwrap(),
@@ -1619,23 +1771,21 @@ fn convert_openai_responses_request_normalizes_model_and_tools() {
         text: None,
         include: None,
         prompt_cache_key: None,
-        previous_response_id: Some("resp_prev".to_string()),
-        metadata: Some(serde_json::json!({"source":"test"})),
+        service_tier: None,
+        previous_response_id: None,
+        metadata: None,
         truncation: None,
         temperature: None,
         top_p: None,
-        user: Some("user-123".to_string()),
+        user: None,
     };
 
     let (model, payload) = proxy.convert_openai_responses_request(req).unwrap();
     assert_eq!(model, "gpt-5.4");
     assert_eq!(payload["model"], serde_json::json!("gpt-5.4"));
-    assert_eq!(
-        payload["previous_response_id"],
-        serde_json::json!("resp_prev")
-    );
-    assert_eq!(payload["metadata"]["source"], serde_json::json!("test"));
-    assert_eq!(payload["user"], serde_json::json!("user-123"));
+    assert!(payload.get("prompt_cache_key").is_none());
+    assert_eq!(payload["store"], false);
+    assert_eq!(payload["tools"][0]["strict"], false);
     assert_eq!(payload["tools"][0]["name"], serde_json::json!("Edit"));
 }
 

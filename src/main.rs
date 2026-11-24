@@ -682,6 +682,7 @@ struct OpenAiResponsesRequest {
     text: Option<Value>,
     include: Option<Vec<String>>,
     prompt_cache_key: Option<String>,
+    service_tier: Option<String>,
     previous_response_id: Option<String>,
     metadata: Option<Value>,
     truncation: Option<Value>,
@@ -1442,43 +1443,50 @@ impl ProxyServer {
         }
         let input = normalize_openai_responses_input(req.input)?;
         let model = normalize_codex_model_id(&req.model);
-        let normalized_tools =
-            normalize_tools_for_codex(req.tools.unwrap_or_default(), CodexToolSource::OpenAi);
+        if req.store == Some(true) {
+            return Err(responses_validation("store"));
+        }
+        for (field, present) in [
+            ("previous_response_id", req.previous_response_id.is_some()),
+            ("metadata", req.metadata.is_some()),
+            ("truncation", req.truncation.is_some()),
+            ("top_p", req.top_p.is_some()),
+            ("user", req.user.is_some()),
+        ] {
+            if present {
+                return Err(responses_validation(field));
+            }
+        }
+        if req
+            .temperature
+            .is_some_and(|value| !value.is_finite() || responses_temperature_denied(&model))
+        {
+            return Err(responses_validation("temperature"));
+        }
+        let normalized_tools = normalize_responses_tools(req.tools.unwrap_or_default())?;
+        let tool_choice = normalize_responses_choice(req.tool_choice, &normalized_tools)?;
         let mut payload = json!({
             "model": model,
             "instructions": req.instructions.unwrap_or_else(|| "You are a helpful AI assistant. Provide clear, accurate, and concise responses to user questions and requests.".to_string()),
             "input": input,
             "tools": normalized_tools,
-            "tool_choice": req.tool_choice.unwrap_or_else(|| json!("auto")),
+            "tool_choice": tool_choice,
             "parallel_tool_calls": req.parallel_tool_calls.unwrap_or(true),
             "reasoning": req.reasoning,
-            "store": req.store.unwrap_or(false),
+            "store": false,
             "stream": true,
             "text": req.text.unwrap_or_else(|| json!({"verbosity":"low","format":{"type":"text"}})),
             "include": req.include.unwrap_or_else(|| vec!["reasoning.encrypted_content".to_string()]),
-            "prompt_cache_key": req.prompt_cache_key.unwrap_or_else(|| Uuid::new_v4().to_string()),
         });
         let obj = payload.as_object_mut().expect("responses payload object");
-        if let Some(previous_response_id) = req.previous_response_id {
-            obj.insert(
-                "previous_response_id".to_string(),
-                json!(previous_response_id),
-            );
+        if let Some(key) = req.prompt_cache_key {
+            obj.insert("prompt_cache_key".to_string(), json!(key));
         }
-        if let Some(metadata) = req.metadata {
-            obj.insert("metadata".to_string(), metadata);
-        }
-        if let Some(truncation) = req.truncation {
-            obj.insert("truncation".to_string(), truncation);
+        if let Some(tier) = req.service_tier {
+            obj.insert("service_tier".to_string(), json!(tier));
         }
         if let Some(temperature) = req.temperature {
             obj.insert("temperature".to_string(), json!(temperature));
-        }
-        if let Some(top_p) = req.top_p {
-            obj.insert("top_p".to_string(), json!(top_p));
-        }
-        if let Some(user) = req.user {
-            obj.insert("user".to_string(), json!(user));
         }
         Ok((model, payload))
     }
@@ -1547,10 +1555,7 @@ impl ProxyServer {
     ) -> Result<reqwest::Response, ProxyError> {
         let mut request_builder = self
             .client
-            .post(format!(
-                "{}/codex/responses",
-                self.upstream_base_url.trim_end_matches('/')
-            ))
+            .post(codex_responses_url(&self.upstream_base_url))
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
             .header("OpenAI-Beta", "responses=experimental")
@@ -2256,6 +2261,289 @@ impl UpstreamHttpResponse {
         *response.headers_mut() = self.headers;
         response
     }
+}
+
+fn responses_validation(field: &str) -> ProxyError {
+    ProxyError::Validation {
+        message: "Invalid or unsupported Responses field".to_string(),
+        field: Some(field.to_string()),
+    }
+}
+
+// Pinned OpenClaw 59b0aec request policy, not a live capability assertion.
+fn responses_temperature_denied(model: &str) -> bool {
+    let folded = model.trim().to_ascii_lowercase();
+    let model = folded.strip_prefix("openai/").unwrap_or(&folded);
+    let model = if model.len() >= 11 {
+        let suffix = &model.as_bytes()[model.len() - 11..];
+        if suffix[0] == b'-'
+            && suffix[5] == b'-'
+            && suffix[8] == b'-'
+            && suffix
+                .iter()
+                .enumerate()
+                .all(|(i, b)| matches!(i, 0 | 5 | 8) || b.is_ascii_digit())
+        {
+            &model[..model.len() - 11]
+        } else {
+            model
+        }
+    } else {
+        model
+    };
+    model == "gpt-5.6"
+        || model.starts_with("gpt-5.6-")
+        || matches!(
+            model,
+            "gpt-6-astra"
+                | "gpt-6-sol"
+                | "gpt-6-luna"
+                | "gpt-6.1-sol"
+                | "gpt-6.2-astra"
+                | "gpt-6.2-sol"
+                | "gpt-daybreak-blue-latest"
+                | "gpt-daybreak-red-latest"
+        )
+}
+
+fn codex_responses_url(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    if base.ends_with("/codex/responses") {
+        base.to_string()
+    } else if base.ends_with("/codex") {
+        format!("{base}/responses")
+    } else {
+        format!("{base}/codex/responses")
+    }
+}
+
+fn parse_responses_request(body: &[u8]) -> Result<OpenAiResponsesRequest, ProxyError> {
+    let mut value: Value = serde_json::from_slice(body).map_err(ProxyError::invalid_json)?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| responses_validation("body"))?;
+    for field in [
+        "previous_response_id",
+        "metadata",
+        "truncation",
+        "top_p",
+        "user",
+    ] {
+        if object.contains_key(field) {
+            return Err(responses_validation(field));
+        }
+    }
+    // Optional null controls have the same default semantics as omission. Keep
+    // required model/input and forbidden-field presence distinct from this rule.
+    for field in [
+        "instructions",
+        "prompt_cache_key",
+        "service_tier",
+        "store",
+        "stream",
+        "parallel_tool_calls",
+        "temperature",
+        "tools",
+        "include",
+        "reasoning",
+        "text",
+        "tool_choice",
+    ] {
+        if object.get(field).is_some_and(Value::is_null) {
+            object.remove(field);
+        }
+    }
+    for field in ["model", "instructions", "prompt_cache_key", "service_tier"] {
+        if object.get(field).is_some_and(|v| !v.is_string()) {
+            return Err(responses_validation(field));
+        }
+    }
+    if !object.contains_key("model") {
+        return Err(responses_validation("model"));
+    }
+    for field in ["store", "stream", "parallel_tool_calls"] {
+        if object.get(field).is_some_and(|v| !v.is_boolean()) {
+            return Err(responses_validation(field));
+        }
+    }
+    if object
+        .get("temperature")
+        .is_some_and(|v| !v.as_f64().is_some_and(f64::is_finite))
+    {
+        return Err(responses_validation("temperature"));
+    }
+    if object.get("tools").is_some_and(|v| !v.is_array()) {
+        return Err(responses_validation("tools"));
+    }
+    if object
+        .get("include")
+        .is_some_and(|v| !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)))
+    {
+        return Err(responses_validation("include"));
+    }
+    if let Some(v) = object.get("service_tier") {
+        if !matches!(
+            v.as_str(),
+            Some("auto" | "default" | "flex" | "priority" | "scale")
+        ) {
+            return Err(responses_validation("service_tier"));
+        }
+    }
+    if let Some(v) = object.get("reasoning") {
+        let obj = v
+            .as_object()
+            .ok_or_else(|| responses_validation("reasoning"))?;
+        for (key, val) in obj {
+            let valid = match key.as_str() {
+                "effort" => {
+                    val.is_null()
+                        || matches!(
+                            val.as_str(),
+                            Some("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")
+                        )
+                }
+                "summary" => {
+                    val.is_null()
+                        || matches!(
+                            val.as_str(),
+                            Some("auto" | "concise" | "detailed" | "off" | "on")
+                        )
+                }
+                "generate_summary" => {
+                    val.is_null() || matches!(val.as_str(), Some("auto" | "concise" | "detailed"))
+                }
+                "context" => {
+                    val.is_null()
+                        || matches!(val.as_str(), Some("auto" | "current_turn" | "all_turns"))
+                }
+                "mode" => val.is_null() || val.is_string(),
+                _ => false,
+            };
+            if !valid {
+                return Err(responses_validation(&format!("reasoning.{key}")));
+            }
+        }
+    }
+    if let Some(v) = object.get("text") {
+        let obj = v.as_object().ok_or_else(|| responses_validation("text"))?;
+        for (key, val) in obj {
+            match key.as_str() {
+                "verbosity"
+                    if val.is_null() || matches!(val.as_str(), Some("low" | "medium" | "high")) => {
+                }
+                "format" if val.is_null() => (),
+                "format" => {
+                    let format = val
+                        .as_object()
+                        .ok_or_else(|| responses_validation("text.format"))?;
+                    match format.get("type").and_then(Value::as_str) {
+                        Some("text" | "json_object") => (),
+                        Some("json_schema")
+                            if format.get("name").is_some_and(Value::is_string)
+                                && format.get("schema").is_some_and(Value::is_object)
+                                && format
+                                    .get("strict")
+                                    .is_none_or(|v| v.is_null() || v.is_boolean())
+                                && format
+                                    .get("description")
+                                    .is_none_or(|v| v.is_null() || v.is_string()) => {}
+                        _ => return Err(responses_validation("text.format")),
+                    }
+                }
+                _ => return Err(responses_validation(&format!("text.{key}"))),
+            }
+        }
+    }
+    serde_json::from_value(value).map_err(ProxyError::invalid_json)
+}
+
+fn normalize_responses_tools(tools: Vec<Value>) -> Result<Vec<Value>, ProxyError> {
+    let mut result = Vec::new();
+    for (index, tool) in tools.into_iter().enumerate() {
+        let field = format!("tools[{index}]");
+        let obj = tool
+            .as_object()
+            .ok_or_else(|| responses_validation(&field))?;
+        if obj.get("type").and_then(Value::as_str) != Some("function") {
+            return Err(responses_validation(&format!("{field}.type")));
+        }
+        let declaration = obj.get("function").unwrap_or(&tool);
+        let declaration = declaration
+            .as_object()
+            .ok_or_else(|| responses_validation(&field))?;
+        let name = declaration
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| responses_validation(&format!("{field}.name")))?;
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(responses_validation(&format!("{field}.name")));
+        }
+        for (key, valid) in [
+            (
+                "description",
+                declaration
+                    .get("description")
+                    .is_none_or(|v| v.is_null() || v.is_string()),
+            ),
+            (
+                "parameters",
+                declaration
+                    .get("parameters")
+                    .is_none_or(|v| v.is_null() || v.is_object()),
+            ),
+            (
+                "strict",
+                declaration.get("strict").is_none_or(|v| {
+                    v.is_boolean() || (obj.contains_key("function") && v.is_null())
+                }),
+            ),
+        ] {
+            if !valid {
+                return Err(responses_validation(&format!("{field}.{key}")));
+            }
+        }
+        let mut normalized = declaration.clone();
+        if obj.contains_key("function") {
+            if normalized.get("parameters").is_none_or(Value::is_null) {
+                normalized.insert(
+                    "parameters".to_string(),
+                    json!({"type":"object","properties":{}}),
+                );
+            }
+            if normalized.get("strict").is_some_and(Value::is_null) {
+                normalized.remove("strict");
+            }
+        }
+        normalized.insert("type".to_string(), json!("function"));
+        normalized.entry("strict").or_insert(json!(false));
+        result.push(Value::Object(normalized));
+    }
+    Ok(result)
+}
+
+fn normalize_responses_choice(choice: Option<Value>, tools: &[Value]) -> Result<Value, ProxyError> {
+    let choice = choice.unwrap_or(json!("auto"));
+    if matches!(choice.as_str(), Some("auto" | "none" | "required")) {
+        return Ok(choice);
+    }
+    if choice.get("type").and_then(Value::as_str) == Some("function") {
+        let name = choice
+            .get("function")
+            .unwrap_or(&choice)
+            .get("name")
+            .and_then(Value::as_str);
+        if let Some(name) = name {
+            if tools.iter().any(|tool| tool["name"] == name) {
+                return Ok(json!({"type":"function","name":name}));
+            }
+        }
+    }
+    Err(responses_validation("tool_choice"))
 }
 
 fn normalize_openai_responses_input(input: Option<Value>) -> Result<Value, ProxyError> {
@@ -3771,7 +4059,13 @@ fn responses_error_response(error: ProxyError) -> warp::reply::Response {
             None,
         ),
     };
-    let body = json!({"error":{"message":message,"type":if status == StatusCode::BAD_REQUEST { "invalid_request_error" } else { "upstream_error" },"code":code}});
+    let mut body = json!({"error":{"message":message,"type":if status == StatusCode::BAD_REQUEST { "invalid_request_error" } else { "upstream_error" },"code":code}});
+    if let ProxyError::Validation {
+        field: Some(field), ..
+    } = &error
+    {
+        body["error"]["param"] = json!(field);
+    }
     let mut response = warp::reply::with_status(warp::reply::json(&body), status).into_response();
     if let Some(value) = retry_after {
         response.headers_mut().insert(
@@ -3958,9 +4252,9 @@ async fn universal_request_handler(
             warp::reply::json(&gateway_models_response()).into_response()
         }
         ("POST", "/v1/responses") => {
-            let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) {
+            let responses_req = match parse_responses_request(&body) {
                 Ok(req) => req,
-                Err(err) => return Ok(responses_error_response(ProxyError::invalid_json(err))),
+                Err(err) => return Ok(responses_error_response(err)),
             };
             if responses_req.stream.unwrap_or(false) {
                 let (model, payload) = match proxy.convert_openai_responses_request(responses_req) {

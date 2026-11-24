@@ -190,3 +190,24 @@ python3 -B scripts/codex_responses_c2.py --gateway target/release/codex-api-gate
 `initial-c2` requires the observed original losses and the unchanged authority control; it does not claim repaired behavior. Running the first command with `--expect c2` instead must fail on `r1_message`, demonstrating the regression before repair. Default repaired mode runs all 66 cases. `--repair-only` validates the complete inventory before selecting the ten repair cases, with scope recorded in its result.
 
 The C2 runner explicitly reuses C1/P1's OS sandbox, synthetic credentials, minimal environment, external-egress and protected-file probes, owned-process/port cleanup and unrelated-listener sentinel. Its manifest fingerprints the gateway, runner, shared lifecycle and fixtures. Intentional post-start failure uses the same cleanup checks. Run unchanged C1 and P5 as streaming regressions, and retain the CI and P1/P3/P4 acceptance checks separately. No live upstream calls are made. See [dated C2 verification](docs/codex-responses-c2-verification-2026-11-23.md).
+
+## Offline native Responses requests and replay (C3)
+
+Prebuild the release binary and compare the same fixtures against an immutable C2 binary and the C3 candidate:
+
+```bash
+python3 -B scripts/codex_responses_c3.py --gateway /path/to/frozen-c2-gateway --expect c2
+python3 -B scripts/codex_responses_c3.py --gateway target/release/codex-api-gateway --expect c3
+python3 -B scripts/codex_responses_c3.py --gateway target/release/codex-api-gateway --expect c3 --verify-failure-cleanup
+```
+
+The runner reuses C1's OS loopback sandbox, protected-file and external-egress probes, process ownership, deadlines and unrelated-listener sentinel. Its synthetic OAuth bearer/account are isolated from real credentials. The 55 ingress cases cover JSON and SSE function/history replay derived from the first actual response, native flat/nested function schemas, option retention, field-specific local rejection and zero attempts, unchanged other-ingress allowlists, and a nine-configuration URL matrix. Recorded upstream requests include synthetic credentials only. Temperature cases prove pinned request policy and forwarding, not live capability. See [dated C3 evidence](docs/codex-responses-c3-verification-2026-11-24.md).
+
+C3 repair round 1 adds 52 targeted cases for C3-R1/R2/R3, preserving the original 63 observations. Compare the same repair fixtures against the immutable initial C3 binary and repaired release:
+
+```bash
+python3 -B scripts/codex_responses_c3.py --gateway /path/to/initial-c3-gateway --expect initial-c3 --repair-only
+python3 -B scripts/codex_responses_c3.py --gateway target/release/codex-api-gateway --expect c3 --repair-only
+```
+
+The normal C3 command runs 115 observations including the nine URL configurations; C2 mode retains its original 63. Repair cases exercise optional nullable controls/defaults, reasoning context/mode and summary off/on without value rewriting, flat nullable native declarations, nested empty-parameter compatibility, and temperature identity case/whitespace/date normalization. Unknown and malformed-date identities retain forwarding behavior. These remain local protocol checks, with no claim about real account support.

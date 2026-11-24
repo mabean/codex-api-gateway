@@ -208,12 +208,12 @@ def worker(args, fixture=Fixture, validate=validate_cases, case_runner=run_case,
         server.daemon_threads = True; server.release = threading.Event()
         threading.Thread(target=server.serve_forever,daemon=True).start()
         port = free_port(); report['ports'] = [port,server.server_port]
-        auth = directory/'auth.json'; auth.write_text('{"OPENAI_API_KEY":"c1-synthetic"}')
+        auth = directory/'auth.json'; auth.write_text(json.dumps(getattr(args,'synthetic_auth',{'OPENAI_API_KEY':'c1-synthetic'})))
         environment = minimal_env(directory)
         environment.update(CODEX_GATEWAY_DISABLE_CLAUDE_KEYCHAIN='1',CODEX_GATEWAY_CODEX_TIMEOUT_SECS='5',CODEX_GATEWAY_CODEX_MAX_ATTEMPTS='2')
         with (directory/'gateway-output.log').open('w') as log:
             gateway = subprocess.Popen([args.gateway,'--port',str(port),'--auth-path',str(auth),
-                '--upstream-base-url','http://127.0.0.1:'+str(server.server_port),'--log-path',str(directory/'gateway.log')],env=environment,stdout=log,stderr=log)
+                '--upstream-base-url','http://127.0.0.1:'+str(server.server_port)+getattr(args,'upstream_suffix',''),'--log-path',str(directory/'gateway.log')],env=environment,stdout=log,stderr=log)
         deadline = time.monotonic()+8
         while True:
             require(gateway.poll() is None, 'gateway exited at startup')
