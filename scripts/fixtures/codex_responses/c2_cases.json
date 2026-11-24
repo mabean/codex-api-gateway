@@ -1,0 +1,679 @@
+{
+  "cases": [
+    {
+      "id": "native",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "tool",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "incomplete",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "native_text",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "authoritative",
+      "criterion": "C2-AC1",
+      "expected_c1": "HTTP 502 upstream_protocol_error for contradictory streamed/final text",
+      "expected_c2": "HTTP 200 native terminal output is authoritative over stale deltas"
+    },
+    {
+      "id": "empty_text",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "sparse",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "no_usage",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "done",
+      "criterion": "C2-AC1",
+      "expected_c1": "HTTP 502 upstream_protocol_error: canonical JSON path does not recognize response.done",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "eof_terminal",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "hold",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "failed",
+      "criterion": "C2-AC1",
+      "expected_c1": "HTTP 502 upstream_protocol_error with synthetic upstream diagnostic disclosed; absent in C2",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "error",
+      "criterion": "C2-AC1",
+      "expected_c1": "HTTP 502 upstream_protocol_error with synthetic upstream diagnostic disclosed; absent in C2",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "missing",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "contradiction",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "mismatch",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "malformed",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "limit",
+      "criterion": "C2-AC1",
+      "expected_c1": "canonical projection or existing structured protocol failure",
+      "expected_c2": "native terminal identity, output, details and text; structured protocol failure for invalid terminal"
+    },
+    {
+      "id": "http400_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http400_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http401_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http401_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http403_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http403_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http404_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http404_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http429_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http429_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http503_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "http503_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_date_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_date_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_obsolete_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_obsolete_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_asctime_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_asctime_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_invalid_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_invalid_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_duplicate_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_duplicate_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_nominated_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_nominated_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_negative_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_negative_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_combined_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "retry_combined_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "transport_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "transport_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "timeout_send_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "timeout_send_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "timeout_body_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "timeout_body_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "truncated_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "truncated_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "local_json",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "local_stream",
+      "criterion": "C2-AC2",
+      "expected_c1": "legacy HTTP 502; local validation 400; no retry hint",
+      "expected_c2": "safe typed HTTP status and envelope, allowlisted valid single retry hint, unchanged attempt policy"
+    },
+    {
+      "id": "r1_message",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output": [
+          {
+            "id": "msg_final",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "final snapshot",
+                "annotations": [
+                  {
+                    "opaque": 42
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "output_text": "final snapshot"
+      }
+    },
+    {
+      "id": "r1_function",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output": [
+          {
+            "id": "fc_final",
+            "type": "function_call",
+            "call_id": "call_final",
+            "name": "Read",
+            "arguments": "{\"path\":\"fixture\"}",
+            "status": "completed",
+            "opaque": 7
+          }
+        ],
+        "output_text": ""
+      }
+    },
+    {
+      "id": "r1_text_done",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": "final snapshot"
+      }
+    },
+    {
+      "id": "r1_delta_done",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": "final "
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output": [
+          {
+            "id": "msg_final",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "final snapshot",
+                "annotations": [
+                  {
+                    "opaque": 42
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "output_text": "final snapshot"
+      }
+    },
+    {
+      "id": "r1_order",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "object": "response",
+        "output": [
+          {
+            "id": "msg_first",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "id": "msg_second",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": " second"
+              }
+            ]
+          },
+          {
+            "id": "fc_final",
+            "type": "function_call",
+            "call_id": "call_final",
+            "name": "Read",
+            "arguments": "{\"path\":\"fixture\"}",
+            "status": "completed",
+            "opaque": 7
+          }
+        ],
+        "output_text": "first second tail"
+      }
+    },
+    {
+      "id": "r1_terminal_output",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output": [
+          {
+            "id": "msg_terminal",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "terminal"
+              }
+            ]
+          }
+        ],
+        "object": "response",
+        "output_text": "terminal"
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output": [
+          {
+            "id": "msg_terminal",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "terminal"
+              }
+            ]
+          }
+        ],
+        "object": "response",
+        "output_text": "terminal"
+      }
+    },
+    {
+      "id": "r1_terminal_empty",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output": [],
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output": [],
+        "object": "response",
+        "output_text": "final snapshot"
+      }
+    },
+    {
+      "id": "r1_terminal_text",
+      "criterion": "C2-AC1",
+      "finding": "C2-R1",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output_text": "",
+        "object": "response"
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "status": "completed",
+        "output_text": "",
+        "object": "response",
+        "output": [
+          {
+            "id": "msg_final",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "final snapshot",
+                "annotations": [
+                  {
+                    "opaque": 42
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "r2_completed_status",
+      "criterion": "C2-AC1",
+      "finding": "C2-R2",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "object": "response",
+        "status": "completed",
+        "output_text": ""
+      }
+    },
+    {
+      "id": "r2_incomplete_status",
+      "criterion": "C2-AC1",
+      "finding": "C2-R2",
+      "expected_c1": "Existing 56-case original-C1 comparison retained separately; new repair cases compare initial C2 to repaired C2",
+      "expected_initial_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "incomplete_details": {
+          "reason": "max_output_tokens",
+          "opaque": 3
+        },
+        "object": "response",
+        "output_text": ""
+      },
+      "expected_c2": {
+        "id": "resp_final",
+        "model": "native-model",
+        "incomplete_details": {
+          "reason": "max_output_tokens",
+          "opaque": 3
+        },
+        "object": "response",
+        "status": "incomplete",
+        "output_text": ""
+      }
+    }
+  ]
+}

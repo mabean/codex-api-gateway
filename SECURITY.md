@@ -23,6 +23,8 @@ The gateway can process:
 
 Normal logs must not contain raw credentials. Detailed wire diagnostics are disabled unless `CODEX_PROXY_VERBOSE=1` is set.
 
+Responses precommit errors use fixed safe messages and codes. Upstream HTTP error bodies are not read or reflected; only one valid `Retry-After` on final HTTP 429 can be forwarded, and `Connection` nominations exclude it. Arbitrary upstream headers, cookies and request IDs are excluded. Codex send/read logs record failure class and attempt information without raw transport diagnostics; retry logs use error codes. Native successful output and native streaming events remain user data, including upstream-provided error events after commitment. See [C2 offline verification](docs/codex-responses-c2-verification-2026-11-23.md).
+
 Verbose mode is intended only for short-lived local debugging. It may include prompts, responses, tool arguments, and upstream SSE fragments. Never attach verbose logs to a public issue without inspecting and redacting them first.
 
 Live verification scripts enable gateway verbose mode by default. See [BUILD.md](BUILD.md) for disabling it and for the acceptance suite's permission-bypass behavior.

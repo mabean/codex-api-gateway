@@ -919,6 +919,13 @@ enum ProxyError {
     UpstreamProtocol {
         message: String,
     },
+    UpstreamTimeout {
+        message: String,
+    },
+    ResponsesHttp {
+        status: StatusCode,
+        retry_after: Option<String>,
+    },
 }
 
 impl ProxyError {
@@ -935,7 +942,9 @@ impl ProxyError {
             Self::UpstreamUnauthorized { .. }
             | Self::UpstreamBadRequest { .. }
             | Self::UpstreamUnavailable { .. }
-            | Self::UpstreamProtocol { .. } => StatusCode::BAD_GATEWAY,
+            | Self::UpstreamProtocol { .. }
+            | Self::UpstreamTimeout { .. }
+            | Self::ResponsesHttp { .. } => StatusCode::BAD_GATEWAY,
         }
     }
     fn anthropic_status_code(&self) -> StatusCode {
@@ -948,6 +957,7 @@ impl ProxyError {
             Self::UpstreamUnauthorized { .. } => "upstream_unauthorized",
             Self::UpstreamBadRequest { .. } => "upstream_bad_request",
             Self::UpstreamUnavailable { .. } => "upstream_unavailable",
+            Self::UpstreamTimeout { .. } | Self::ResponsesHttp { .. } => "upstream_unavailable",
             Self::UpstreamProtocol { .. } => "upstream_protocol_error",
         }
     }
@@ -959,6 +969,7 @@ impl ProxyError {
             Self::UpstreamUnauthorized { .. } => "upstream_unauthorized",
             Self::UpstreamBadRequest { .. } => "upstream_bad_request",
             Self::UpstreamUnavailable { .. } => "upstream_unavailable",
+            Self::UpstreamTimeout { .. } | Self::ResponsesHttp { .. } => "upstream_unavailable",
             Self::UpstreamProtocol { .. } => "upstream_protocol_error",
         }
     }
@@ -970,12 +981,18 @@ impl ProxyError {
             Self::UpstreamUnauthorized { .. } => "authentication_error",
             Self::UpstreamBadRequest { .. }
             | Self::UpstreamUnavailable { .. }
+            | Self::UpstreamTimeout { .. }
+            | Self::ResponsesHttp { .. }
             | Self::UpstreamProtocol { .. } => "api_error",
         }
     }
     fn is_retryable_codex_upstream_error(&self) -> bool {
         match self {
             Self::UpstreamUnavailable { .. } => true,
+            Self::UpstreamTimeout { .. } => true,
+            Self::ResponsesHttp { status, .. } => {
+                classify_upstream_error(*status, String::new()).is_retryable_codex_upstream_error()
+            }
             Self::UpstreamProtocol { message } => {
                 let message = message.to_lowercase();
                 message.contains("timed out")
@@ -987,6 +1004,8 @@ impl ProxyError {
     }
     fn message(&self) -> String {
         match self {
+            Self::UpstreamTimeout { message } => message.clone(),
+            Self::ResponsesHttp { status, .. } => format!("upstream returned {}", status.as_u16()),
             Self::InvalidJson { details } => details
                 .clone()
                 .map(|d| format!("Invalid JSON: {}", d))
@@ -1504,7 +1523,7 @@ impl ProxyServer {
                         "[codex-upstream-retry] model={} attempt={} reason={}",
                         model,
                         attempt,
-                        err.message()
+                        err.openai_code()
                     );
                     last_error = Some(err);
                 }
@@ -1521,7 +1540,7 @@ impl ProxyServer {
 
     async fn open_codex_upstream(
         &self,
-        model: &str,
+        _model: &str,
         payload: &Value,
         timeout: Duration,
         attempt: usize,
@@ -1556,13 +1575,15 @@ impl ProxyServer {
         request_builder = request_builder.header("session_id", session_id.to_string());
         let response = request_builder.json(&payload).send().await.map_err(|e| {
             log::warn!(
-                "[codex-upstream-send-error] model={} attempt={} error={}",
-                model,
+                "[codex-upstream-send-error] attempt={} timeout={}",
                 attempt,
-                e
+                e.is_timeout()
             );
             if e.is_timeout() {
                 log::warn!("[codex-upstream-timeout] stage=send attempt={}", attempt);
+                return ProxyError::UpstreamTimeout {
+                    message: format!("failed to send request to upstream: {}", e),
+                };
             }
             ProxyError::UpstreamUnavailable {
                 message: format!("failed to send request to upstream: {}", e),
@@ -1634,11 +1655,11 @@ impl ProxyServer {
     }
 
     fn codex_body_read_error(error: reqwest::Error, attempt: usize) -> ProxyError {
-        log::warn!("[upstream-read-error] {}", error);
+        log::warn!("[upstream-read-error] timeout={}", error.is_timeout());
         if error.is_timeout() {
             log::warn!("[codex-upstream-timeout] stage=read attempt={}", attempt);
             log::warn!("[request-outcome] upstream_read_failed");
-            return ProxyError::UpstreamUnavailable {
+            return ProxyError::UpstreamTimeout {
                 message: format!("timed out reading upstream response body: {}", error),
             };
         }
@@ -1663,10 +1684,7 @@ impl ProxyServer {
                     .open_codex_upstream(&model, &payload, retry.timeout, attempt)
                     .await?;
                 if !response.status().is_success() {
-                    return Err(classify_upstream_error(
-                        response.status(),
-                        format!("upstream returned {}", response.status()),
-                    ));
+                    return Err(responses_http_error(&response));
                 }
                 let mut source = response.bytes_stream();
                 let mut parser = streaming::NativeResponsesSseParser::default();
@@ -1733,7 +1751,8 @@ impl ProxyServer {
                         Ok(frame) => frame,
                         Err(error) => {
                             done = true;
-                            format!("event: error\ndata: {}\n\n", json!({"type":"error","error":{"type":"upstream_protocol_error","message":error.message()}})).into_bytes()
+                            let _ = error;
+                            format!("event: error\ndata: {}\n\n", json!({"type":"error","error":{"type":"upstream_protocol_error","message":"Invalid upstream response"}})).into_bytes()
                         }
                     };
                     if done || parser.terminal {
@@ -1993,11 +2012,52 @@ impl ProxyServer {
         req: OpenAiResponsesRequest,
     ) -> Result<Value, ProxyError> {
         let (model, payload) = self.convert_openai_responses_request(req)?;
-        let (_model, body) = self
-            .upstream_sse_text_for_payload(model.clone(), payload, codex_upstream_retry_config())
-            .await?;
-        let events = parse_codex_sse_to_events(&body)?;
-        Ok(render_openai_responses_json(&events, &model))
+        let retry = codex_upstream_retry_config();
+        for attempt in 1..=retry.max_attempts {
+            let result = async {
+                let response = self
+                    .open_codex_upstream(&model, &payload, retry.timeout, attempt)
+                    .await?;
+                if !response.status().is_success() {
+                    return Err(responses_http_error(&response));
+                }
+                let mut source = response.bytes_stream();
+                let mut parser = streaming::NativeResponsesSseParser::for_json();
+                let mut size = 0usize;
+                while !parser.terminal {
+                    parser.check_error()?;
+                    match source.next().await {
+                        Some(Ok(bytes)) => {
+                            size += bytes.len();
+                            if size > 16 * 1024 * 1024 {
+                                return Err(ProxyError::UpstreamProtocol {
+                                    message: "upstream response exceeds 16 MiB limit".into(),
+                                });
+                            }
+                            parser.feed(&bytes)?;
+                        }
+                        Some(Err(error)) => {
+                            return Err(Self::codex_body_read_error(error, attempt))
+                        }
+                        None => {
+                            parser.finish()?;
+                        }
+                    }
+                }
+                parser.into_response()
+            }
+            .await;
+            match result {
+                Err(error)
+                    if attempt < retry.max_attempts
+                        && error.is_retryable_codex_upstream_error() =>
+                {
+                    continue
+                }
+                value => return value,
+            }
+        }
+        unreachable!("retry configuration always permits an attempt")
     }
 
     async fn proxy_anthropic_upstream_request(
@@ -3594,6 +3654,133 @@ fn openai_error_response(error: ProxyError) -> warp::reply::Response {
     let body = json!({"error":{"message": error.message(),"type": error.openai_type(),"code": error.openai_code()}});
     warp::reply::with_status(warp::reply::json(&body), status).into_response()
 }
+
+fn valid_responses_retry_after(value: &str) -> bool {
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        return true;
+    }
+    // HTTP-date uses GMT, never a caller-selected timezone. Accept the three
+    // HTTP date spellings, including the obsolete forms HTTP recipients support.
+    [
+        "%a, %d %b %Y %H:%M:%S GMT",
+        "%A, %d-%b-%y %H:%M:%S GMT",
+        "%a %b %e %H:%M:%S %Y",
+    ]
+    .iter()
+    .any(|format| {
+        chrono::NaiveDateTime::parse_from_str(value, format)
+            .is_ok_and(|date| date.format(format).to_string().eq_ignore_ascii_case(value))
+    })
+}
+
+fn responses_http_error(response: &reqwest::Response) -> ProxyError {
+    let status = response.status();
+    let headers = response.headers();
+    let nominated = headers
+        .get_all("connection")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|v| v.trim().eq_ignore_ascii_case("retry-after"));
+    let values: Vec<_> = headers.get_all("retry-after").iter().collect();
+    let retry_after = if status == StatusCode::TOO_MANY_REQUESTS && !nominated && values.len() == 1
+    {
+        values[0]
+            .to_str()
+            .ok()
+            .filter(|v| valid_responses_retry_after(v))
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    ProxyError::ResponsesHttp {
+        status,
+        retry_after,
+    }
+}
+
+fn responses_error_response(error: ProxyError) -> warp::reply::Response {
+    let (status, code, message, retry_after) = match &error {
+        ProxyError::ResponsesHttp {
+            status,
+            retry_after,
+        } => {
+            let (code, message) = match *status {
+                StatusCode::BAD_REQUEST => {
+                    ("upstream_bad_request", "Upstream rejected the request")
+                }
+                StatusCode::UNAUTHORIZED => {
+                    ("upstream_unauthorized", "Upstream authentication failed")
+                }
+                StatusCode::FORBIDDEN => ("upstream_forbidden", "Upstream access denied"),
+                StatusCode::NOT_FOUND => {
+                    ("upstream_not_found", "Upstream model or resource not found")
+                }
+                StatusCode::TOO_MANY_REQUESTS => {
+                    ("upstream_rate_limit", "Upstream rate limit exceeded")
+                }
+                _ => ("upstream_unavailable", "Upstream request failed"),
+            };
+            let status = if matches!(status.as_u16(), 400 | 401 | 403 | 404 | 429) {
+                *status
+            } else {
+                StatusCode::BAD_GATEWAY
+            };
+            (status, code, message, retry_after.clone())
+        }
+        ProxyError::UpstreamTimeout { .. } => (
+            StatusCode::GATEWAY_TIMEOUT,
+            "upstream_timeout",
+            "Upstream request timed out",
+            None,
+        ),
+        ProxyError::UpstreamUnavailable { .. } => (
+            StatusCode::BAD_GATEWAY,
+            "upstream_unavailable",
+            "Upstream transport failed",
+            None,
+        ),
+        ProxyError::UpstreamProtocol { .. } => (
+            StatusCode::BAD_GATEWAY,
+            "upstream_protocol_error",
+            "Invalid upstream response",
+            None,
+        ),
+        ProxyError::InvalidJson { .. } => (
+            StatusCode::BAD_REQUEST,
+            "invalid_json",
+            "Invalid JSON",
+            None,
+        ),
+        ProxyError::Validation { .. } => (
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "Invalid request",
+            None,
+        ),
+        ProxyError::Auth { .. } => (
+            StatusCode::BAD_REQUEST,
+            "auth_error",
+            "Gateway authentication unavailable",
+            None,
+        ),
+        _ => (
+            StatusCode::BAD_GATEWAY,
+            "upstream_unavailable",
+            "Upstream request failed",
+            None,
+        ),
+    };
+    let body = json!({"error":{"message":message,"type":if status == StatusCode::BAD_REQUEST { "invalid_request_error" } else { "upstream_error" },"code":code}});
+    let mut response = warp::reply::with_status(warp::reply::json(&body), status).into_response();
+    if let Some(value) = retry_after {
+        response.headers_mut().insert(
+            "retry-after",
+            value.parse().expect("validated upstream header"),
+        );
+    }
+    response
+}
 fn anthropic_error_response(error: ProxyError) -> warp::reply::Response {
     let status = error.anthropic_status_code();
     let body = AnthropicErrorEnvelope {
@@ -3773,12 +3960,12 @@ async fn universal_request_handler(
         ("POST", "/v1/responses") => {
             let responses_req = match serde_json::from_slice::<OpenAiResponsesRequest>(&body) {
                 Ok(req) => req,
-                Err(err) => return Ok(openai_error_response(ProxyError::invalid_json(err))),
+                Err(err) => return Ok(responses_error_response(ProxyError::invalid_json(err))),
             };
             if responses_req.stream.unwrap_or(false) {
                 let (model, payload) = match proxy.convert_openai_responses_request(responses_req) {
                     Ok(v) => v,
-                    Err(err) => return Ok(openai_error_response(err)),
+                    Err(err) => return Ok(responses_error_response(err)),
                 };
                 match proxy
                     .proxy_native_responses_stream(model, payload, codex_upstream_retry_config())
@@ -3788,12 +3975,12 @@ async fn universal_request_handler(
                         .header("content-type", "text/event-stream")
                         .body(sse_body)
                         .expect("valid SSE response"),
-                    Err(err) => openai_error_response(err),
+                    Err(err) => responses_error_response(err),
                 }
             } else {
                 match proxy.proxy_openai_responses_request(responses_req).await {
                     Ok(response) => warp::reply::json(&response).into_response(),
-                    Err(err) => openai_error_response(err),
+                    Err(err) => responses_error_response(err),
                 }
             }
         }

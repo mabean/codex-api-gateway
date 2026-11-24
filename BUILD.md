@@ -166,3 +166,27 @@ python3 -B -m unittest discover -s scripts -p 'test_codex_responses_c1.py'
 The 24 mandatory cases test decoded text and tool fragments before an upstream terminal barrier, split UTF-8/CRLF/multiline data, native bytes and opaque fields, cancellation, retry and exhaustion, explicit errors after commitment, terminal normalization/outcomes, terminal completion without EOF, valid EOF-delimited terminals with missing final newline/blank delimiter, invalid EOF tails, frame bounds and the configured deadline. To reproduce the prior buffering defect, run the same harness with `--gateway /absolute/path/to/immutable-baseline-gateway --expect baseline`: this mode executes the identical text/tool barriers and requires both to remain buffered until release. It also verifies that a truncated Content-Length before commitment produces HTTP 502 `upstream_protocol_error` after one attempt, as required on both baseline and repaired binaries. Baseline mode is a diagnostic, not C1 acceptance.
 
 The printed temporary directory contains sanitized fixture outcomes, binary/harness hashes and cleanup receipts. `--verify-failure-cleanup` intentionally fails after startup and exits zero only after verifying that failure, owned process/port cleanup and an unrelated listener's survival. Normal missing checks or assertions fail nonzero. P1/P3/P4/P5 and the CI baseline remain separate regression checks. No real credentials, account inference or provider refresh are exercised. See [dated C1 verification](docs/codex-responses-c1-verification-2026-11-23.md).
+
+## Offline native Responses JSON and HTTP errors (C2)
+
+Prebuild the release gateway and preserve an immutable accepted-C1 executable for the original comparison. The same mandatory fixtures execute through both releases; the expectation flag changes only assertions:
+
+```bash
+python3 -B scripts/codex_responses_c2.py --gateway /absolute/path/to/immutable-c1-gateway --expect c1
+python3 -B scripts/codex_responses_c2.py --gateway target/release/codex-api-gateway --expect c2
+python3 -B scripts/codex_responses_c2.py --gateway target/release/codex-api-gateway --expect c2 --verify-failure-cleanup
+python3 -B -m unittest discover -s scripts -p 'test_codex_responses_c*.py'
+```
+
+The current C2 suite has 66 mandatory cases: the original 56 plus ten C2-R1/R2 repair cases. The original cases cover native completed/incomplete/function-call JSON, nonzero usage details, ordered text and native text precedence, sparse compatibility, absent usage, authoritative terminal output, legacy and EOF terminals, completion before upstream EOF, malformed/missing/failed/error/contradictory terminals and frame bounds. Both stream modes check upstream 400/401/403/404/429, retry exhaustion, valid decimal/HTTP-date retry hints, invalid/duplicate/combined/negative/Connection-nominated hints, send/read timeouts, transport failure, truncated body classification, local validation, attempt counts and synthetic secret exclusion from responses, headers and ordinary logs. C1 mode retains the original 56 cases and their expectations; it precisely records the old projection, legacy-terminal failure and raw terminal-error disclosure and is diagnostic, not C2 acceptance.
+
+The ten appended repair cases verify finalized native message/function items when terminal output is omitted, standalone text-done events, delta/done deduplication, output-index ordering with mixed finalized text, authoritative terminal output/text including empty arrays/strings, and missing completed/incomplete status. Run the identical bounded comparison against the frozen initial C2 and repaired releases:
+
+```bash
+python3 -B scripts/codex_responses_c2.py --gateway /absolute/path/to/initial-c2-gateway --expect initial-c2 --repair-only
+python3 -B scripts/codex_responses_c2.py --gateway target/release/codex-api-gateway --expect c2 --repair-only
+```
+
+`initial-c2` requires the observed original losses and the unchanged authority control; it does not claim repaired behavior. Running the first command with `--expect c2` instead must fail on `r1_message`, demonstrating the regression before repair. Default repaired mode runs all 66 cases. `--repair-only` validates the complete inventory before selecting the ten repair cases, with scope recorded in its result.
+
+The C2 runner explicitly reuses C1/P1's OS sandbox, synthetic credentials, minimal environment, external-egress and protected-file probes, owned-process/port cleanup and unrelated-listener sentinel. Its manifest fingerprints the gateway, runner, shared lifecycle and fixtures. Intentional post-start failure uses the same cleanup checks. Run unchanged C1 and P5 as streaming regressions, and retain the CI and P1/P3/P4 acceptance checks separately. No live upstream calls are made. See [dated C2 verification](docs/codex-responses-c2-verification-2026-11-23.md).

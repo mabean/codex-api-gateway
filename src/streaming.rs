@@ -133,8 +133,90 @@ fn take_sse_line(pending: &mut Vec<u8>) -> Option<Vec<u8>> {
     Some(pending.drain(..=end).collect())
 }
 
-/// Validate framing and terminal outcomes without projecting away native fields.
+// JSON-only fallback snapshots; the streaming parser never allocates this state.
 #[derive(Default)]
+struct NativeResponsesJsonItem {
+    index: Option<u64>,
+    final_item: Option<Value>,
+    text: std::collections::BTreeMap<u64, String>,
+}
+
+#[derive(Default)]
+struct NativeResponsesJsonState {
+    identities: CodexTextState,
+    items: std::collections::BTreeMap<usize, NativeResponsesJsonItem>,
+}
+
+impl NativeResponsesJsonState {
+    fn event(&mut self, kind: &str, event: &Value) {
+        if !matches!(
+            kind,
+            "response.output_item.added"
+                | "response.output_item.done"
+                | "response.output_text.delta"
+                | "response.output_text.done"
+        ) {
+            return;
+        }
+        let native_item = event.get("item").filter(|item| item.is_object());
+        let key = self.identities.item(event, native_item);
+        let item = self.items.entry(key).or_default();
+        if let Some(index) = event.get("output_index").and_then(Value::as_u64) {
+            item.index = Some(index);
+        }
+        let part = event
+            .get("content_index")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        match kind {
+            "response.output_text.delta" => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    item.text.entry(part).or_default().push_str(delta);
+                }
+            }
+            "response.output_text.done" => {
+                if let Some(text) = event.get("text").and_then(Value::as_str) {
+                    item.text.insert(part, text.into());
+                }
+            }
+            "response.output_item.done" => {
+                if let Some(snapshot) = native_item {
+                    item.final_item = Some(snapshot.clone());
+                    if let Some(content) = snapshot.get("content").and_then(Value::as_array) {
+                        item.text.clear();
+                        for (part, block) in content.iter().enumerate() {
+                            if block["type"] == "output_text" {
+                                if let Some(text) = block["text"].as_str() {
+                                    item.text.insert(part as u64, text.into());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+
+    fn fallback(self) -> (Vec<Value>, String) {
+        let mut items: Vec<_> = self.items.into_iter().collect();
+        items.sort_by_key(|(key, item)| (item.index.unwrap_or(*key as u64), *key));
+        let mut output = Vec::new();
+        let mut text = String::new();
+        for (_, item) in items {
+            if let Some(snapshot) = item.final_item {
+                output.push(snapshot);
+            }
+            for part in item.text.into_values() {
+                text.push_str(&part);
+            }
+        }
+        (output, text)
+    }
+}
+
+#[derive(Default)]
+/// Validate framing and terminal outcomes without projecting away native fields.
 pub struct NativeResponsesSseParser {
     pending: Vec<u8>,
     frame: Vec<u8>,
@@ -142,9 +224,62 @@ pub struct NativeResponsesSseParser {
     event: Option<String>,
     pub terminal: bool,
     pending_error: Option<ProxyError>,
+    json_state: Option<NativeResponsesJsonState>,
+    json_response: Option<Value>,
 }
 
 impl NativeResponsesSseParser {
+    pub fn for_json() -> Self {
+        Self {
+            json_state: Some(NativeResponsesJsonState::default()),
+            ..Self::default()
+        }
+    }
+
+    pub fn into_response(mut self) -> Result<Value, ProxyError> {
+        self.check_error()?;
+        let mut response = self
+            .json_response
+            .take()
+            .ok_or_else(|| protocol("upstream did not complete a response"))?;
+        let object = response.as_object_mut().expect("validated native response");
+        let native_output = object.contains_key("output");
+        let (fallback_output, fallback_text) = self.json_state.unwrap_or_default().fallback();
+        if !object.contains_key("output") && !fallback_output.is_empty() {
+            object.insert("output".into(), Value::Array(fallback_output));
+        }
+        object
+            .entry("object")
+            .or_insert_with(|| Value::String("response".into()));
+        if !object.contains_key("output_text") {
+            let mut text = String::new();
+            let mut found = false;
+            if let Some(output) = object
+                .get("output")
+                .filter(|_| native_output)
+                .and_then(Value::as_array)
+            {
+                for item in output {
+                    if let Some(content) = item.get("content").and_then(Value::as_array) {
+                        for block in content {
+                            if block["type"] == "output_text" {
+                                if let Some(value) = block["text"].as_str() {
+                                    found = true;
+                                    text.push_str(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            object.insert(
+                "output_text".into(),
+                Value::String(if found { text } else { fallback_text }),
+            );
+        }
+        Ok(response)
+    }
+
     pub fn check_error(&mut self) -> Result<(), ProxyError> {
         self.pending_error.take().map_or(Ok(()), Err)
     }
@@ -218,6 +353,9 @@ impl NativeResponsesSseParser {
         if event_name.as_deref().is_some_and(|name| name != kind) {
             return Err(protocol("upstream SSE event/type mismatch"));
         }
+        if let Some(state) = &mut self.json_state {
+            state.event(&kind, &event);
+        }
         let expected = match kind.as_str() {
             "response.completed" => Some("completed"),
             "response.incomplete" => Some("incomplete"),
@@ -242,6 +380,18 @@ impl NativeResponsesSseParser {
                 return Err(protocol("contradictory upstream terminal status"));
             }
             self.terminal = true;
+            if self.json_state.is_some() {
+                if status == "failed" {
+                    return Err(protocol("upstream response failed"));
+                }
+                let mut response = event["response"].clone();
+                response
+                    .as_object_mut()
+                    .expect("validated response")
+                    .entry("status")
+                    .or_insert_with(|| Value::String(status.into()));
+                self.json_response = Some(response);
+            }
             if kind == "response.done" {
                 let normalized = format!("response.{status}");
                 event["type"] = Value::String(normalized.clone());

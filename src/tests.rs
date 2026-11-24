@@ -2399,3 +2399,203 @@ fn c1_r2_native_eof_dispatches_only_valid_terminals() {
         assert!(parser.finish().is_err(), "accepted EOF frame {raw}");
     }
 }
+
+#[test]
+fn c2_json_preserves_native_terminal_and_uses_ordered_text() {
+    use crate::streaming::NativeResponsesSseParser;
+    use serde_json::json;
+    for native_text in [None, Some(""), Some("authoritative")] {
+        let mut response = json!({"id":"native", "model":"native-model", "status":"incomplete",
+            "output":[{"type":"function_call","call_id":"call","arguments":"{}","opaque":5},
+                      {"type":"message","content":[{"type":"output_text","text":"first"},
+                       {"type":"refusal","refusal":"keep"},{"type":"output_text","text":" second"}]}],
+            "incomplete_details":{"reason":"max_output_tokens"},
+            "usage":{"output_tokens_details":{"reasoning_tokens":9}}});
+        if let Some(text) = native_text {
+            response["output_text"] = json!(text);
+        }
+        let mut parser = NativeResponsesSseParser::for_json();
+        let raw = format!(
+            "data: {}\n\ndata: {}",
+            json!({"type":"response.output_text.delta","delta":"stale"}),
+            json!({"type":"response.done","response":response})
+        );
+        for bytes in raw.as_bytes().chunks(1) {
+            parser.feed(bytes).unwrap();
+        }
+        parser.finish().unwrap();
+        let actual = parser.into_response().unwrap();
+        for (key, value) in response.as_object().unwrap() {
+            assert_eq!(&actual[key], value);
+        }
+        assert_eq!(actual["output_text"], native_text.unwrap_or("first second"));
+        assert_eq!(actual["object"], "response");
+        assert!(actual["usage"].get("total_tokens").is_none());
+    }
+    let mut parser = NativeResponsesSseParser::for_json();
+    parser.feed(b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"fallback\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n").unwrap();
+    let actual = parser.into_response().unwrap();
+    assert_eq!(actual["output_text"], "fallback");
+    assert!(actual.get("usage").is_none());
+    for raw in [
+        "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n",
+        "data: {\"type\":\"error\",\"message\":\"synthetic secret\"}\n\n",
+    ] {
+        let mut parser = NativeResponsesSseParser::for_json();
+        if parser.feed(raw.as_bytes()).is_ok() {
+            assert!(parser.into_response().is_err());
+        }
+    }
+}
+
+#[test]
+fn c2_retry_after_is_single_valid_and_not_connection_nominated() {
+    use crate::{responses_error_response, responses_http_error, StatusCode};
+    for (values, connection, expected) in [
+        (vec!["12"], None, Some("12")),
+        (
+            vec!["Wed, 21 Oct 2015 07:28:00 GMT"],
+            None,
+            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
+        ),
+        (
+            vec!["Wednesday, 21-Oct-15 07:28:00 GMT"],
+            None,
+            Some("Wednesday, 21-Oct-15 07:28:00 GMT"),
+        ),
+        (
+            vec!["Wed Oct 21 07:28:00 2015"],
+            None,
+            Some("Wed Oct 21 07:28:00 2015"),
+        ),
+        (vec!["1", "2"], None, None),
+        (vec!["-1"], None, None),
+        (vec!["1, 2"], None, None),
+        (vec!["secret"], None, None),
+        (vec!["Wed, 99 Oct 2015 07:28:00 GMT"], None, None),
+        (vec!["Wednesday, 21 Oct 2015 07:28:00 GMT"], None, None),
+        (vec!["Wed, 21 Oct 15 07:28:00 GMT"], None, None),
+        (vec!["Wed, 21 Oct 2015 07:28:00 UTC"], None, None),
+        (vec![" Wed, 21 Oct 2015 07:28:00 GMT"], None, None),
+        (vec!["12"], Some("keep-alive, RETRY-AFTER"), None),
+    ] {
+        let mut builder = warp::http::Response::builder().status(429);
+        for value in values {
+            builder = builder.header("retry-after", value);
+        }
+        if let Some(value) = connection {
+            builder = builder.header("connection", value);
+        }
+        let upstream: reqwest::Response = builder.body("").unwrap().into();
+        let ProxyError::ResponsesHttp {
+            status,
+            retry_after,
+        } = responses_http_error(&upstream)
+        else {
+            panic!("wrong variant")
+        };
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(retry_after.as_deref(), expected);
+    }
+    let timeout = ProxyError::UpstreamTimeout {
+        message: "legacy diagnostic".into(),
+    };
+    assert!(timeout.is_retryable_codex_upstream_error());
+    assert_eq!(timeout.openai_status_code(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        responses_error_response(timeout).status(),
+        StatusCode::GATEWAY_TIMEOUT
+    );
+}
+
+#[test]
+fn c2_r1_sparse_native_finals_preserve_items_order_and_text_without_duplicates() {
+    use crate::streaming::NativeResponsesSseParser;
+    use serde_json::json;
+    let message = json!({"id":"msg_native","type":"message","content":[{"type":"output_text","text":"final snapshot","opaque":7}]});
+    let call = json!({"id":"fc_native","type":"function_call","call_id":"call_native","name":"Read","arguments":"{}","opaque":42});
+    for explicit_output in [
+        None,
+        Some(json!([])),
+        Some(
+            json!([{"id":"terminal","type":"message","content":[{"type":"output_text","text":"authoritative"}]}]),
+        ),
+    ] {
+        for explicit_text in [None, Some("")] {
+            let mut parser = NativeResponsesSseParser::for_json();
+            let mut response = json!({"id":"native","status":"completed"});
+            if let Some(output) = &explicit_output {
+                response["output"] = output.clone();
+            }
+            if let Some(text) = explicit_text {
+                response["output_text"] = json!(text);
+            }
+            for event in [
+                json!({"type":"response.output_item.done","output_index":1,"item":call}),
+                json!({"type":"response.output_text.delta","item_id":"msg_native","delta":"final "}),
+                json!({"type":"response.output_text.done","item_id":"msg_native","output_index":0,"text":"final snapshot"}),
+                json!({"type":"response.output_item.done","output_index":0,"item":message}),
+                json!({"type":"response.output_item.done","output_index":0,"item":message}),
+                json!({"type":"response.completed","response":response}),
+            ] {
+                for byte in format!("data: {event}\n\n").as_bytes() {
+                    parser.feed(&[*byte]).unwrap();
+                }
+            }
+            let actual = parser.into_response().unwrap();
+            assert_eq!(
+                actual["output"],
+                explicit_output
+                    .clone()
+                    .unwrap_or_else(|| json!([message, call]))
+            );
+            let expected_text = explicit_text.unwrap_or(
+                if explicit_output
+                    .as_ref()
+                    .is_some_and(|output| output.as_array().is_some_and(|items| !items.is_empty()))
+                {
+                    "authoritative"
+                } else {
+                    "final snapshot"
+                },
+            );
+            assert_eq!(actual["output_text"], expected_text);
+            assert!(actual.get("usage").is_none());
+        }
+    }
+    let mut parser = NativeResponsesSseParser::for_json();
+    parser.feed(b"data: {\"type\":\"response.output_text.done\",\"text\":\"standalone\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n").unwrap();
+    let actual = parser.into_response().unwrap();
+    assert_eq!(actual["output_text"], "standalone");
+    assert!(actual.get("output").is_none());
+    assert!(actual.get("id").is_none());
+}
+
+#[test]
+fn c2_r2_missing_status_uses_validated_terminal_kind_only_in_json() {
+    use crate::streaming::NativeResponsesSseParser;
+    use serde_json::json;
+    for status in ["completed", "incomplete"] {
+        let event = json!({"type":format!("response.{status}"),"response":{"id":"native","incomplete_details":{"reason":"max_output_tokens"}}});
+        let wire = format!("data: {event}\n\n");
+        let mut json = NativeResponsesSseParser::for_json();
+        json.feed(wire.as_bytes()).unwrap();
+        let actual = json.into_response().unwrap();
+        assert_eq!(actual["status"], status);
+        assert_eq!(actual["id"], "native");
+        assert_eq!(
+            actual["incomplete_details"],
+            event["response"]["incomplete_details"]
+        );
+        let mut native = NativeResponsesSseParser::default();
+        assert_eq!(native.feed(wire.as_bytes()).unwrap(), wire.as_bytes());
+        for wrong in [json!(null), json!("failed"), json!("in_progress")] {
+            let mut parser = NativeResponsesSseParser::for_json();
+            let wire = format!(
+                "data: {}\n\n",
+                json!({"type":format!("response.{status}"),"response":{"status":wrong}})
+            );
+            assert!(parser.feed(wire.as_bytes()).is_err());
+        }
+    }
+}

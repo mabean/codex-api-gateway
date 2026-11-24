@@ -191,7 +191,7 @@ def run_case(server, port, ident, expect):
             'elapsed_ms':round((time.monotonic()-started)*1000)}
 
 
-def worker(args):
+def worker(args, fixture=Fixture, validate=validate_cases, case_runner=run_case, cases_path=CASES):
     directory = Path(args.worker); server = gateway = None
     report = {'result':1,'ports':[],'outcomes':[]}
     try:
@@ -204,7 +204,7 @@ def worker(args):
         except PermissionError: pass
         else: raise ValueError('credential canary readable')
         report['isolation'] = True
-        server = http.server.ThreadingHTTPServer(('127.0.0.1',0),Fixture)
+        server = http.server.ThreadingHTTPServer(('127.0.0.1',0),fixture)
         server.daemon_threads = True; server.release = threading.Event()
         threading.Thread(target=server.serve_forever,daemon=True).start()
         port = free_port(); report['ports'] = [port,server.server_port]
@@ -221,10 +221,10 @@ def worker(args):
             except OSError:
                 require(time.monotonic() < deadline, 'startup deadline'); time.sleep(.05)
         require(not args.fail_after_start, 'intentional failure after owned services start')
-        cases = validate_cases(json.loads(CASES.read_text())['cases'])
+        cases = validate(json.loads(cases_path.read_text())['cases'])
         for case in cases:
             if args.expect == 'baseline' and case['id'] not in ('text','tool','precommit_retry'): continue
-            report['outcomes'].append(run_case(server,port,case['id'],args.expect))
+            report['outcomes'].append(case_runner(server,port,case['id'],args.expect))
         report['result'] = 0
     except Exception as error: report['error'] = str(error)
     finally:
@@ -239,14 +239,16 @@ def worker(args):
     return report['result']
 
 
-def run(args):
+def run(args, script=None, cases_path=CASES, worker_args=()):
     require(sys.platform == 'darwin', 'macOS OS sandbox required')
     gateway = Path(args.gateway).resolve(); require(gateway.is_file(), 'prebuilt gateway required')
     directory = Path(tempfile.mkdtemp(prefix='codex-responses-c1-')).resolve()
     print('local evidence: '+str(directory),flush=True)
+    script = Path(script or __file__).resolve()
     manifest = {'gateway_sha256':hashlib.sha256(gateway.read_bytes()).hexdigest(),'expect':args.expect,
-                'harness_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                'cases_sha256':hashlib.sha256(CASES.read_bytes()).hexdigest()}
+                'harness_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),
+                'lifecycle_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                'cases_sha256':hashlib.sha256(cases_path.read_bytes()).hexdigest()}
     (directory/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     canary = directory/'credential-canary'; canary.write_text('synthetic protected canary')
     policy = directory/'sandbox.sb'; policy.write_text(sandbox_policy(Path.home(),canary))
@@ -254,8 +256,9 @@ def run(args):
     threading.Thread(target=sentinel.serve_forever,daemon=True).start()
     process = None
     try:
-        command = ['/usr/bin/sandbox-exec','-f',str(policy),sys.executable,str(Path(__file__).resolve()),
+        command = ['/usr/bin/sandbox-exec','-f',str(policy),sys.executable,str(script),
                    '--worker',str(directory),'--gateway',str(gateway),'--expect',args.expect,'--canary',str(canary)]
+        command.extend(worker_args)
         if args.verify_failure_cleanup: command.append('--fail-after-start')
         process = subprocess.Popen(command,env=minimal_env(directory),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
         try: _,stderr = process.communicate(timeout=100)

@@ -40,6 +40,8 @@ Public hosting, shared credentials, multi-user isolation, and untrusted local cl
 
 ## Residual risks
 
+C2 Responses error boundary (2026-11-23): precommit JSON/stream errors preserve useful upstream 400/401/403/404/429 status while replacing diagnostic bodies with fixed messages and distinct codes. Typed timeout maps to 504 and transport failure to 502. A final 429 may forward only a single validated `Retry-After`, excluding `Connection` nominations; other upstream error headers are discarded. Native JSON terminal content and usage are authoritative user data, not gateway configuration. Ordinary Codex transport/retry logs exclude raw diagnostics. Credential resolution, outbound origins, listener exposure and Chat/Messages error mappings are unchanged. The [offline C2 evidence](docs/codex-responses-c2-verification-2026-11-23.md) uses synthetic secret probes; it does not prove live account access.
+
 - Local processes can call the gateway because it does not provide strong downstream authentication.
 - CORS permits any origin and the gateway does not authenticate downstream callers. A remote web page may be able to call the localhost listener where browser restrictions permit it; loopback binding alone does not establish caller trust.
 - Codex credentials are loaded at startup without local expiry validation or automatic reload. Updating the auth file requires restarting the gateway; token validity is determined by the upstream.
