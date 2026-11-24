@@ -695,6 +695,7 @@ async fn parses_openclaw_auth_profiles_file() {
                 "profiles": {{
                     "profile-1": {{
                         "type": "oauth",
+                        "provider": "openai-codex",
                         "access": "{}"
                     }}
                 }},
@@ -773,11 +774,102 @@ async fn rejects_file_without_usable_credentials() {
     assert!(result.is_err());
     let err = result.err().unwrap();
     let msg = err.to_string();
+    assert_eq!(msg, "Codex auth: access token required");
+}
+
+#[test]
+fn c4_credentials_reject_invalid_sources_without_disclosing_values() {
+    use serde_json::{json, Value};
+    let native = |token: &str, account: Value| json!({"auth_mode":"chatgpt","tokens":{"access_token":token,"account_id":account}});
+    let profile = json!({"type":"oauth","provider":"openai-codex","access":"synthetic-access","accountId":"account"});
+    let inputs = [
+        json!({"OPENAI_API_KEY":"sk-synthetic-secret"}),
+        native("sk-synthetic-secret", json!("account")),
+        native("synthetic-secret\n", json!("account")),
+        native("synthetic-secret", json!("")),
+        native("synthetic-secret", json!(null)),
+        native("a.invalid!.c", json!("account")),
+        json!({"auth_mode":"siwc","tokens":{"access_token":"synthetic-secret","account_id":"account"}}),
+        json!({"profiles":{"one":profile.clone(),"two":profile.clone()}}),
+        json!({"profiles":{"one":profile.clone()},"lastGood":{"openai-codex":"missing"}}),
+        json!({"profiles":{"one":profile},"lastGood":null}),
+    ];
+    for value in inputs {
+        let error = ProxyServer::parse_auth_data(&value.to_string()).unwrap_err();
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("Codex auth:"));
+        assert!(!diagnostic.contains("synthetic"));
+    }
+    let error = ProxyServer::parse_auth_data(r#"{"synthetic-secret": "#).unwrap_err();
+    assert_eq!(error.to_string(), "Codex auth: invalid JSON");
+}
+
+#[test]
+fn c4_jwt_account_and_expiry_are_consistency_checks() {
+    use base64::Engine;
+    use serde_json::{json, Value};
+    let token = |claims: Value| {
+        format!(
+            "e30.{}.synthetic",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
+        )
+    };
+    let auth = |token: String, account: Value| {
+        json!({"tokens":{"access_token":token,"account_id":account}}).to_string()
+    };
+    let claims =
+        json!({"https://api.openai.com/auth":{"chatgpt_account_id":"account"},"exp":4102444800u64});
+    let parsed = ProxyServer::parse_auth_data(&auth(token(claims.clone()), Value::Null)).unwrap();
+    assert_eq!(parsed.account_id.as_deref(), Some("account"));
+    assert_eq!(format!("{parsed:?}"), "AuthData [redacted]");
+    assert!(ProxyServer::parse_auth_data(&auth(token(claims), json!("different"))).is_err());
     assert!(
-        msg.contains("parse")
-            || msg.contains("supported auth file format")
-            || msg.contains("usable")
+        ProxyServer::parse_auth_data(&auth(token(json!({"exp":1})), json!("account"))).is_err()
     );
+    assert!(
+        ProxyServer::parse_auth_data(&auth(token(json!({"exp":"invalid"})), json!("account")))
+            .is_err()
+    );
+}
+
+#[test]
+fn c4_owner_precedence_and_incompatible_legacy_flows() {
+    use serde_json::{json, Value};
+    let tokens = json!({"access_token":"synthetic.opaque","account_id":"account"});
+    for mode in [None, Some(Value::Null)] {
+        let mut native = json!({"tokens":tokens});
+        if let Some(mode) = mode {
+            native["auth_mode"] = mode;
+        }
+        assert!(ProxyServer::parse_auth_data(&native.to_string()).is_ok());
+        for field in [
+            "OPENAI_API_KEY",
+            "personal_access_token",
+            "bedrock_api_key",
+            "bedrock_access_keys",
+        ] {
+            let mut mixed = native.clone();
+            mixed[field] = json!("synthetic-alternative");
+            assert!(ProxyServer::parse_auth_data(&mixed.to_string()).is_err());
+            mixed["auth_mode"] = json!("chatgpt");
+            assert!(ProxyServer::parse_auth_data(&mixed.to_string()).is_ok());
+            mixed["auth_mode"] = Value::Null;
+            mixed[field] = Value::Null;
+            assert!(ProxyServer::parse_auth_data(&mixed.to_string()).is_ok());
+        }
+    }
+    for flow in ["chatgpt-token-sharing", "chatgpt-identity"] {
+        let profile = json!({"type":"oauth","provider":"openai-codex","access":"synthetic.opaque","accountId":"account"});
+        let mut input = json!({"profiles":{"selected":profile.clone(),"fallback":profile},"lastGood":{"openai-codex":"selected"}});
+        input["profiles"]["selected"]["authFlow"] = json!(flow);
+        let error = ProxyServer::parse_auth_data(&input.to_string()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Codex auth: unsupported selected profile"
+        );
+        input.as_object_mut().unwrap().remove("lastGood");
+        assert!(ProxyServer::parse_auth_data(&input.to_string()).is_ok());
+    }
 }
 
 #[test]

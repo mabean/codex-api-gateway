@@ -208,7 +208,7 @@ def worker(args, fixture=Fixture, validate=validate_cases, case_runner=run_case,
         server.daemon_threads = True; server.release = threading.Event()
         threading.Thread(target=server.serve_forever,daemon=True).start()
         port = free_port(); report['ports'] = [port,server.server_port]
-        auth = directory/'auth.json'; auth.write_text(json.dumps(getattr(args,'synthetic_auth',{'OPENAI_API_KEY':'c1-synthetic'})))
+        auth = directory/'auth.json'; auth.write_text(json.dumps(getattr(args,'synthetic_auth',{'tokens':{'access_token':'c1-synthetic','account_id':'c1-account'}})))
         environment = minimal_env(directory)
         environment.update(CODEX_GATEWAY_DISABLE_CLAUDE_KEYCHAIN='1',CODEX_GATEWAY_CODEX_TIMEOUT_SECS='5',CODEX_GATEWAY_CODEX_MAX_ATTEMPTS='2')
         with (directory/'gateway-output.log').open('w') as log:

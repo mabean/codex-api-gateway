@@ -1,0 +1,298 @@
+{
+  "cases": [
+    {
+      "id": "native",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_historical",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_claim_account",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "legacy",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "last_good",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "legacy_claim_account",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "api_key",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_api_mode",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_siwc",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_foreign",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "modern_openai",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "foreign_provider",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "legacy_siwc",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "dangling",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "invalid_reference",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "invalid_last_good",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "ambiguous",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "expired_profile",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "expired_jwt",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "mismatch",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "missing_account",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "empty_account",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "empty_access",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "invalid_access_header",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "invalid_account_header",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "platform_token",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "invalid_claims",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "malformed",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "empty",
+      "criterion": "C4-AC1",
+      "expected_c3": false,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "restart",
+      "criterion": "C4-AC3",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "safe_401",
+      "criterion": "C4-AC3",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "safe_403",
+      "criterion": "C4-AC3",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "legacy_siwc_token_sharing",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "legacy_siwc_identity",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "legacy_opaque_dotted",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_null_mode",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_mixed_OPENAI_API_KEY",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_mixed_personal_access_token",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_mixed_bedrock_api_key",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_mixed_bedrock_access_keys",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": true
+    },
+    {
+      "id": "native_null_mixed",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": false,
+      "expected_initial_c4": false
+    },
+    {
+      "id": "native_explicit_precedence",
+      "criterion": "C4-AC1",
+      "expected_c3": true,
+      "expected_c4": true,
+      "expected_initial_c4": true
+    }
+  ]
+}

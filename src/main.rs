@@ -877,11 +877,17 @@ enum NormalizedMessage {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AuthData {
     api_key: Option<String>,
     access_token: Option<String>,
     account_id: Option<String>,
+}
+
+impl std::fmt::Debug for AuthData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AuthData [redacted]")
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1024,33 +1030,6 @@ impl ProxyError {
     }
 }
 
-#[derive(Deserialize, Debug)]
-struct LegacyAuthFile {
-    #[serde(rename = "OPENAI_API_KEY")]
-    api_key: Option<String>,
-    tokens: Option<LegacyTokenData>,
-}
-#[derive(Deserialize, Debug)]
-struct LegacyTokenData {
-    access_token: String,
-    account_id: String,
-}
-#[derive(Deserialize, Debug)]
-struct OpenClawAuthProfiles {
-    profiles: Option<std::collections::HashMap<String, OpenClawProfile>>,
-    #[serde(rename = "lastGood")]
-    last_good: Option<std::collections::HashMap<String, String>>,
-}
-#[derive(Deserialize, Debug)]
-struct OpenClawProfile {
-    #[serde(rename = "type")]
-    profile_type: Option<String>,
-    provider: Option<String>,
-    access: Option<String>,
-    #[serde(rename = "accountId")]
-    account_id: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct ClaudeCliCredentialsFile {
     #[serde(rename = "claudeAiOauth")]
@@ -1096,13 +1075,8 @@ impl ProxyServer {
         };
         let auth_content = tokio::fs::read_to_string(&auth_path)
             .await
-            .with_context(|| format!("Failed to read auth file: {}", auth_path))?;
-        let auth_data = Self::parse_auth_data(&auth_content).with_context(|| {
-            format!("Failed to parse supported auth file format: {}", auth_path)
-        })?;
-        if auth_data.api_key.is_none() && auth_data.access_token.is_none() {
-            anyhow::bail!("auth file did not contain a usable API key or OAuth access token")
-        }
+            .map_err(|_| anyhow::anyhow!("Codex auth: file unreadable"))?;
+        let auth_data = Self::parse_auth_data(&auth_content)?;
         let client = build_http_client()?;
         Ok(Self {
             client,
@@ -1117,51 +1091,69 @@ impl ProxyServer {
     }
 
     fn parse_auth_data(raw: &str) -> Result<AuthData> {
-        if let Ok(legacy) = serde_json::from_str::<LegacyAuthFile>(raw) {
-            let access_token = legacy.tokens.as_ref().map(|t| t.access_token.clone());
-            let account_id = legacy.tokens.as_ref().map(|t| t.account_id.clone());
-            if legacy.api_key.is_some() || access_token.is_some() {
-                return Ok(AuthData {
-                    api_key: legacy.api_key,
-                    access_token,
-                    account_id,
-                });
+        // Never include parser errors or source values in credential diagnostics.
+        let value: Value =
+            serde_json::from_str(raw).map_err(|_| anyhow::anyhow!("Codex auth: invalid JSON"))?;
+        let root = value.as_object().context("Codex auth: expected object")?;
+        if root.contains_key("profiles") {
+            if root.contains_key("tokens") || root.contains_key("auth_mode") {
+                anyhow::bail!("Codex auth: mixed credential sources");
             }
-        }
-        if let Ok(openclaw) = serde_json::from_str::<OpenClawAuthProfiles>(raw) {
-            if let Some(profiles) = openclaw.profiles {
-                let selected_profile = openclaw
-                    .last_good
-                    .as_ref()
-                    .and_then(|last_good| last_good.get("openai-codex"))
-                    .and_then(|profile_id| profiles.get(profile_id))
-                    .or_else(|| {
-                        profiles.values().find(|profile| {
-                            profile.profile_type.as_deref() == Some("oauth")
-                                && profile.provider.as_deref() == Some("openai-codex")
-                        })
-                    });
-
-                if let Some(profile) = selected_profile {
-                    if profile.profile_type.as_deref() == Some("oauth") {
-                        let access_token = profile.access.clone();
-                        let account_id = profile.account_id.clone().or_else(|| {
-                            access_token
-                                .as_ref()
-                                .and_then(|t| extract_account_id_from_jwt(t))
-                        });
-                        if access_token.is_some() {
-                            return Ok(AuthData {
-                                api_key: None,
-                                access_token,
-                                account_id,
-                            });
-                        }
-                    }
+            let profiles = root["profiles"]
+                .as_object()
+                .context("Codex auth: invalid profiles")?;
+            let eligible = |p: &Value| {
+                p.get("type").and_then(Value::as_str) == Some("oauth")
+                    && p.get("provider").and_then(Value::as_str) == Some("openai-codex")
+                    && !matches!(
+                        p.get("authFlow").and_then(Value::as_str),
+                        Some("chatgpt-token-sharing" | "chatgpt-identity")
+                    )
+            };
+            let selected = if let Some(last) = root.get("lastGood") {
+                let last = last.as_object().context("Codex auth: invalid lastGood")?;
+                if let Some(id) = last.get("openai-codex") {
+                    let id = id
+                        .as_str()
+                        .context("Codex auth: invalid lastGood reference")?;
+                    profiles
+                        .get(id)
+                        .context("Codex auth: dangling lastGood reference")?
+                } else {
+                    unique_codex_profile(profiles.values().filter(|p| eligible(p)))?
                 }
+            } else {
+                unique_codex_profile(profiles.values().filter(|p| eligible(p)))?
+            };
+            if !eligible(selected) {
+                anyhow::bail!("Codex auth: unsupported selected profile");
             }
+            return validate_codex_credentials(
+                selected.get("access"),
+                selected.get("accountId"),
+                selected.get("expires"),
+            );
         }
-        anyhow::bail!("unsupported auth file format")
+        if let Some(mode) = root.get("auth_mode").filter(|mode| !mode.is_null()) {
+            if mode.as_str() != Some("chatgpt") {
+                anyhow::bail!("Codex auth: unsupported auth mode");
+            }
+        } else if [
+            "OPENAI_API_KEY",
+            "personal_access_token",
+            "bedrock_api_key",
+            "bedrock_access_keys",
+        ]
+        .iter()
+        .any(|field| root.get(*field).is_some_and(|value| !value.is_null()))
+        {
+            anyhow::bail!("Codex auth: incompatible native credential source");
+        }
+        let tokens = root
+            .get("tokens")
+            .and_then(Value::as_object)
+            .context("Codex auth: supported OAuth tokens required")?;
+        validate_codex_credentials(tokens.get("access_token"), tokens.get("account_id"), None)
     }
 
     async fn resolve_anthropic_upstream_auth(
@@ -4105,20 +4097,82 @@ fn not_found_response(api_family: ApiFamily) -> warp::reply::Response {
     }
 }
 
-fn extract_account_id_from_jwt(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let padded = match payload.len() % 4 {
-        2 => format!("{}==", payload),
-        3 => format!("{}=", payload),
-        _ => payload.to_string(),
+fn unique_codex_profile<'a>(mut profiles: impl Iterator<Item = &'a Value>) -> Result<&'a Value> {
+    let selected = profiles
+        .next()
+        .context("Codex auth: no supported OAuth profile")?;
+    if profiles.next().is_some() {
+        anyhow::bail!("Codex auth: ambiguous OAuth profiles");
+    }
+    Ok(selected)
+}
+
+fn validate_codex_credentials(
+    access: Option<&Value>,
+    account: Option<&Value>,
+    expires: Option<&Value>,
+) -> Result<AuthData> {
+    let token = access
+        .and_then(Value::as_str)
+        .context("Codex auth: access token required")?;
+    let safe = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_graphic());
+    if !safe(token) || token.starts_with("sk-") {
+        anyhow::bail!("Codex auth: invalid OAuth access token");
+    }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
+    if let Some(expiry) = expires {
+        let expiry = expiry.as_f64().context("Codex auth: invalid expiry")?;
+        if expiry <= now * 1000.0 {
+            anyhow::bail!("Codex auth: expired OAuth credential");
+        }
+    }
+    // Claims provide consistency checks only: no signature, ownership or route attestation.
+    let claims = if token.split('.').count() == 3 {
+        let parts: Vec<_> = token.split('.').collect();
+        let bytes = URL_SAFE_NO_PAD
+            .decode(parts[1].trim_end_matches('='))
+            .map_err(|_| anyhow::anyhow!("Codex auth: invalid token claims"))?;
+        let claims: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("Codex auth: invalid token claims"))?;
+        if !claims.is_object() {
+            anyhow::bail!("Codex auth: invalid token claims");
+        }
+        if let Some(exp) = claims.get("exp") {
+            if exp.as_f64().context("Codex auth: invalid token expiry")? <= now {
+                anyhow::bail!("Codex auth: expired OAuth credential");
+            }
+        }
+        Some(claims)
+    } else {
+        None
     };
-    let decoded = URL_SAFE_NO_PAD.decode(padded.as_bytes()).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    value
-        .get("https://api.openai.com/auth")
-        .and_then(|v| v.get("chatgpt_account_id"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    let claim_account = claims
+        .as_ref()
+        .and_then(|c| c.get("https://api.openai.com/auth"))
+        .and_then(|a| a.get("chatgpt_account_id"));
+    let parse_account = |v: &Value| -> Result<String> {
+        let s = v.as_str().context("Codex auth: invalid account ID")?;
+        if !safe(s) {
+            anyhow::bail!("Codex auth: invalid account ID");
+        }
+        Ok(s.to_string())
+    };
+    let explicit = account
+        .filter(|v| !v.is_null())
+        .map(parse_account)
+        .transpose()?;
+    let claimed = claim_account.map(parse_account).transpose()?;
+    if explicit.is_some() && claimed.is_some() && explicit != claimed {
+        anyhow::bail!("Codex auth: conflicting account ID");
+    }
+    let account_id = explicit
+        .or(claimed)
+        .context("Codex auth: account ID required")?;
+    Ok(AuthData {
+        api_key: None,
+        access_token: Some(token.to_string()),
+        account_id: Some(account_id),
+    })
 }
 
 fn log_request(method: &warp::http::Method, path: &str, headers: &warp::http::HeaderMap) {
@@ -4159,7 +4213,7 @@ async fn main() -> Result<()> {
         args.log_retained_files,
         log_path.display()
     );
-    log::info!("✓ Loaded authentication from {}", args.auth_path);
+    log::info!("✓ Loaded configured Codex OAuth credentials");
     log::info!(
         "✓ Auth mode: {}",
         if proxy.auth_data.access_token.is_some() {

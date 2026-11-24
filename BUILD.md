@@ -211,3 +211,21 @@ python3 -B scripts/codex_responses_c3.py --gateway target/release/codex-api-gate
 ```
 
 The normal C3 command runs 115 observations including the nine URL configurations; C2 mode retains its original 63. Repair cases exercise optional nullable controls/defaults, reasoning context/mode and summary off/on without value rewriting, flat nullable native declarations, nested empty-parameter compatibility, and temperature identity case/whitespace/date normalization. Unknown and malformed-date identities retain forwarding behavior. These remain local protocol checks, with no claim about real account support.
+
+## Offline C4 OAuth source and account binding
+
+```bash
+python3 -B scripts/codex_responses_c4.py --gateway /path/to/immutable-c3-gateway --expect c3
+python3 -B scripts/codex_responses_c4.py --gateway target/release/codex-api-gateway --expect c4
+python3 -B scripts/codex_responses_c4.py --gateway target/release/codex-api-gateway --expect c4 --verify-failure-cleanup
+```
+
+The 42 mandatory synthetic scenarios use release startup and real HTTP ingress, isolated by the C1 macOS sandbox/lifecycle runner. They compare native and historical JSON, deterministic legacy selection, lastGood validation, ambiguity, expiry, incompatible sources, invalid headers, account claim fallback/conflict, ordinary diagnostics, configured outbound bearer/account, 401/403 and an owned restart. Replacement is checked before and after restart to prove snapshot ownership. Failure cleanup verifies owned processes/ports close and an unrelated listener survives. Reports include binary, harness and fixture hashes; temporary auth values stay in isolated scratch storage. Current C1 shared startup and P1/P3/P4/P5 fixtures use synthetic OAuth; their protocol assertions and historical P2 runner are unchanged. Full CI and prior accepted suites remain required regression checks. See [dated C4 verification](docs/codex-responses-c4-verification-2026-11-24.md); none of these checks proves real login, entitlement or refresh.
+
+C4 pre-final repairs add ten owner-precedence/source probes. Compare the same fixtures with the immutable initial C4 build:
+
+```bash
+python3 -B scripts/codex_responses_c4.py --gateway /path/to/initial-c4-gateway --expect initial-c4
+```
+
+Exact legacy `authFlow` values `chatgpt-token-sharing` and `chatgpt-identity` are rejected even with OAuth/Codex labels and a valid fallback beside an explicit selection. Native absent/null mode respects nonnull API/personal/Bedrock owner fields, explicit ChatGPT retains precedence, and one-dot opaque access remains supported with an explicit account. Three-part malformed JWT-like and known-expiry negative cases remain mandatory. See the dated C4 report for before/fixed receipts.

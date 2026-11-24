@@ -140,7 +140,7 @@ def worker(args):
         port = free_port()
         report['ports'].append(port)
         auth = directory/'auth.json'
-        auth.write_text('{"OPENAI_API_KEY":"p1-synthetic-codex"}')
+        auth.write_text('{"tokens":{"access_token":"p1-synthetic-codex","account_id":"synthetic-account"}}')
         command = [args.gateway,'--port',str(port),'--auth-path',str(auth),
                    '--upstream-base-url',upstream,'--anthropic-upstream-base-url',upstream,
                    '--anthropic-auth-token','p1-synthetic-upstream','--log-path',str(directory/'gateway.log')]

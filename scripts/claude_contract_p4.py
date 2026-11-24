@@ -134,7 +134,7 @@ def worker(args):
         upstream = 'http://127.0.0.1:'+str(server.server_port)
         base = 'http://127.0.0.1:'+str(port)
         auth = directory/'auth.json'
-        auth.write_text('{"OPENAI_API_KEY":"p4-synthetic-codex"}')
+        auth.write_text('{"tokens":{"access_token":"p4-synthetic-codex","account_id":"synthetic-account"}}')
         command = [args.gateway,'--port',str(port),'--auth-path',str(auth),'--upstream-base-url',upstream,
                    '--anthropic-upstream-base-url',upstream,'--log-path',str(directory/'gateway.log')]
         environment = minimal_env(directory)

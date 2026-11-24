@@ -152,9 +152,13 @@ The gateway removes this directive before forwarding the prompt.
 
 ## Authentication
 
-Codex credentials are read from `--auth-path`. Legacy Codex auth files and OpenClaw-style auth profile files are supported.
+Codex credentials are read once at startup from the operator-selected `--auth-path`. Use the native Codex file-backed ChatGPT login: configure Codex `cli_auth_credentials_store = "file"`, let Codex own login and refresh, and pass its `$CODEX_HOME/auth.json` (normally `~/.codex/auth.json`). See [official Codex authentication](https://learn.chatgpt.com/docs/auth?surface=cli). Keyring-only or ephemeral login does not provide this file contract.
 
-The gateway reads Codex credentials at startup and does not validate token expiry locally. Restart it after updating the auth file; upstream authorization errors indicate credentials that are rejected.
+Supported native JSON has `auth_mode:"chatgpt"` (or historical omitted mode), `tokens.access_token`, and `tokens.account_id`. Unrelated owner fields such as `id_token`, `refresh_token` and `last_refresh` are tolerated; the gateway never uses them to refresh. A missing account may come from the access-token claim `https://api.openai.com/auth` → `chatgpt_account_id`. Conflicting, empty or invalid accounts fail startup. JWT claims are decoded only for consistency and known `exp` checks; they do not verify signatures, ownership or Codex route provenance. Opaque access tokens with explicit accounts have unknown expiry. Platform API keys and explicitly different auth modes are rejected.
+
+Legacy OpenClaw JSON is limited to `profiles` entries with `type:"oauth"`, `provider:"openai-codex"`, `access` and `accountId` (or the same claim fallback). `lastGood["openai-codex"]`, when present, must point to a fully valid matching profile; invalid or dangling references fail closed. Otherwise exactly one matching profile is required. Known legacy `expires` milliseconds and JWT `exp` seconds must be in the future. Modern `provider:"openai"`, SIWC, API-only and foreign profiles are unsupported: JSON labels and unverified claims cannot establish which credential flow owns them. There is no managed OpenClaw SQLite integration or private app-server handoff; see [C4 sources and support boundary](docs/codex-responses-c4-verification-2026-11-24.md).
+
+After the login owner updates the file, stop and restart the gateway through its existing process manager with the same explicit path. A running process retains its original token/account snapshot. Startup diagnostics use fixed categories without credential values. Responses 401/403 preserve the status with safe messages: check the selected owner login, account and access, update through Codex, then restart. The gateway does not attempt refresh. Inbound credentials cannot replace configured Codex bearer/account headers.
 
 Anthropic authentication is resolved in this order:
 
