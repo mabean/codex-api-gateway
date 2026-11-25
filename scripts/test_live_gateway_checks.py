@@ -11,13 +11,13 @@ from live_gateway_checks import CheckFailure, Suite, validate_claude_tools
 
 def trace():
     return [
-        {'message': {'content': [{'type': 'tool_use', 'id': 'first', 'name': 'Read', 'input': {'file_path': 'note.txt'}}]}},
+        {'message': {'content': [{'type': 'tool_use', 'id': 'first', 'name': 'Read', 'input': {'file_path': 'note.txt', 'offset': 1, 'limit': 1}}]}},
         {'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'first', 'content': '1→before'}]}},
         {'message': {'content': [{'type': 'tool_use', 'id': 'edit', 'name': 'Edit', 'input': {'file_path': 'note.txt', 'old_string': 'before', 'new_string': 'NONCE'}}]}},
         {'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'edit', 'content': 'File updated successfully.'}]}},
-        {'message': {'content': [{'type': 'tool_use', 'id': 'last', 'name': 'Read', 'input': {'file_path': 'note.txt'}}]}},
-        {'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'last', 'content': [{'type': 'text', 'text': '1→NONCE'}]}]}},
-        {'type': 'result', 'subtype': 'success', 'result': 'NONCE'},
+        {'message': {'content': [{'type': 'tool_use', 'id': 'last', 'name': 'Read', 'input': {'file_path': 'note.txt', 'offset': 1, 'limit': 2}}]}},
+        {'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'last', 'content': [{'type': 'text', 'text': '1→NONCE\n2→CHALLENGE'}]}]}},
+        {'type': 'result', 'subtype': 'success', 'result': 'NONCE\nCHALLENGE'},
     ]
 
 
@@ -31,10 +31,10 @@ class ClaudeEvidenceTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.work = pathlib.Path(self.directory.name)
         # File and terminal marker deliberately remain correct in every counterexample.
-        (self.work / 'note.txt').write_text('NONCE\n')
+        (self.work / 'note.txt').write_text('NONCE\nCHALLENGE\n')
 
     def validate(self, events):
-        validate_claude_tools(events, 'edit-read', self.work, 'NONCE')
+        validate_claude_tools(events, 'edit-read', self.work, 'NONCE', 'CHALLENGE')
 
     def test_valid_relative_and_absolute_target_paths(self):
         self.validate(trace())
@@ -57,6 +57,53 @@ class ClaudeEvidenceTests(unittest.TestCase):
         block(events, 5)['content'] = '1→before'
         with self.assertRaises(CheckFailure):
             self.validate(events)
+
+    def test_first_read_must_not_disclose_challenge(self):
+        events = trace()
+        block(events, 1)['content'] = '1→before\n2→CHALLENGE'
+        with self.assertRaises(CheckFailure):
+            self.validate(events)
+
+    def test_read_back_requires_both_values_from_same_result(self):
+        for text in ('1→NONCE', '2→CHALLENGE'):
+            with self.subTest(text=text):
+                events = trace()
+                block(events, 5)['content'] = text
+                with self.assertRaises(CheckFailure):
+                    self.validate(events)
+
+    def test_disk_requires_both_lines(self):
+        for text in ('NONCE\n', 'CHALLENGE\n', 'NONCE\nwrong\n'):
+            with self.subTest(text=text):
+                (self.work / 'note.txt').write_text(text)
+                with self.assertRaises(CheckFailure):
+                    self.validate(trace())
+
+    def test_terminal_requires_exact_two_lines_and_success(self):
+        for defect in ('missing', 'failed', 'wrong-subtype', 'marker-only', 'challenge-only', 'extra'):
+            with self.subTest(defect=defect):
+                events = trace()
+                if defect == 'missing':
+                    events.pop()
+                elif defect == 'failed':
+                    events[-1]['is_error'] = True
+                elif defect == 'wrong-subtype':
+                    events[-1]['subtype'] = 'error_max_turns'
+                else:
+                    events[-1]['result'] = {'marker-only': 'NONCE', 'challenge-only': 'CHALLENGE',
+                                            'extra': 'NONCE\nCHALLENGE\nextra'}[defect]
+                with self.assertRaises(CheckFailure):
+                    self.validate(events)
+
+    def test_bash_still_requires_correlated_successful_command_output(self):
+        events = [
+            {'message': {'content': [{'type': 'tool_use', 'id': 'bash', 'name': 'Bash', 'input': {}}]}},
+            {'message': {'content': [{'type': 'tool_result', 'tool_use_id': 'bash', 'content': 'NONCE'}]}},
+        ]
+        validate_claude_tools(events, 'bash', self.work, 'NONCE', '')
+        block(events, 1)['is_error'] = True
+        with self.assertRaises(CheckFailure):
+            validate_claude_tools(events, 'bash', self.work, 'NONCE', '')
 
     def test_read_issued_before_edit_result_is_not_read_back(self):
         events = trace()

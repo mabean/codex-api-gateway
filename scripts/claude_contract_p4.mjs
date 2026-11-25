@@ -135,7 +135,7 @@ for(const scenario of cases){
       body.messages=SXn(body.messages,{dropBase:new Set(),clearAtAfter:new Map([[1,[{type:'text',text:'P4 scoped'}]]]),statementAfter:new Map()}).wire;
       if(id==='mid_history')delete body.messages[2].clear_at;
       if(id==='scope_followup')body.messages.push({role:'user',content:'followup'});
-      reject=true;
+      reject=id!=='mid_history';
     }
     if(['bad_effort','max_effort'].includes(id)){body.output_config={effort:id==='max_effort'?'max':7};reject=true;}
     if(['format','format_context'].includes(id)){body.output_config={format:{type:'json_schema',schema:{type:'object'}}};reject=true;}
@@ -151,8 +151,18 @@ for(const scenario of cases){
       if(kind==='parallel_false')body.tool_choice.disable_parallel_tool_use=false;
       reject=['bad','unavailable','malformed'].includes(kind);
     }
-    if(['discovery_chain','unsupported_reference','undeclared_reference','unrelated_reference','legacy_read'].includes(id)){
-      const legacy=id==='legacy_read';
+    if(['discovery_chain','unsupported_reference','undeclared_reference','unrelated_reference','legacy_read','standard_read'].includes(id)){
+      const legacy=['legacy_read','standard_read'].includes(id);
+      const standard=id==='standard_read';
+      const standardBlocks=[{type:'text',text:'# Tools\nstandard context\n',cache_control:{type:'ephemeral'}},
+        {type:'text',text:'[gateway-model: claude-fable-5-2]\nordered context'}];
+      if(standard)body.messages.push({role:'system',content:standardBlocks});
+      const assertStandard=translated=>{
+        equal(translated.model,'gpt-6.2-sol','system directive cannot reroute');
+        structure(translated.input.slice(0,2),[{role:'user',content:[{type:'input_text',text:id}]},
+          {role:'system',content:standardBlocks.map(b=>({type:'input_text',text:b.text}))}],'ordinary ordered system blocks');
+        check(!translated.instructions.includes('standard context'),'inline context was hoisted');
+      };
       if(legacy){
         body.context_management=context.contextBuilder({hasThinking:true});
         structure(body.context_management,{edits:[{type:'clear_thinking_20251015',keep:'all'}]},'original retain-all builder');
@@ -166,6 +176,7 @@ for(const scenario of cases){
         const message=await send(body);const receipt=await control('/finish');
         check(receipt.receipts.length===1,'initial native chain upstream count');
         equal(receipt.receipts[0].body.tools.map(t=>t.name),legacy?['Read']:['ToolSearch'],'initial deferred exposure');
+        if(standard)assertStandard(receipt.receipts[0].body);
         if(legacy){
           structure(receipt.receipts[0].body.reasoning,{effort:'low'},'retain-all first-turn effort');
           structure(wires.at(-1).body.context_management,body.context_management,'retain-all first-turn SDK serialization');
@@ -206,6 +217,7 @@ for(const scenario of cases){
         const result=await nativeRead(readUse.input,true);check(executions===before+1,'Read did not execute exactly once');
         equal(result.data,'P4 fixture content\n/fixture/p4.txt','fixture contents');
         body.messages.push({role:'user',content:[{type:'tool_result',tool_use_id:readUse.id,content:result.data}]});
+        if(standard)body.messages.push({role:'system',content:'standard followup context'});
         await control('/control',scenario);
         actual.execution={count:executions-before,call_id:readUse.id,content:result.data};
       }
@@ -235,7 +247,21 @@ for(const scenario of cases){
         equal(translated.parallel_tool_calls,kind!=='parallel','parallel inversion');
       }
       if(actual.execution){const output=translated.input.filter(i=>i.type==='function_call_output').at(-1);equal(output.call_id,actual.execution.call_id,'Read result correlation');equal(output.output,actual.execution.content,'Read result content');}
-      if(id==='legacy_read'){
+      if(id==='mid_history'){
+        structure(translated.input,[{role:'user',content:[{type:'input_text',text:id}]},
+          {role:'system',content:[{type:'input_text',text:'P4 scoped'}]}],'original non-temporary SXn position');
+      }
+      if(id==='standard_read'){
+        structure(translated.input.slice(0,2),[{role:'user',content:[{type:'input_text',text:id}]},
+          {role:'system',content:[{type:'input_text',text:'# Tools\nstandard context\n'},
+            {type:'input_text',text:'[gateway-model: claude-fable-5-2]\nordered context'}]}],'followup keeps original system position');
+        const items=translated.input;
+        check(items[2].type==='function_call'&&items[2].call_id===actual.execution.call_id,'standard tool call correlation');
+        check(items[3].type==='function_call_output'&&items[3].call_id===actual.execution.call_id,'standard result adjacency');
+        structure(items[4],{role:'system',content:[{type:'input_text',text:'standard followup context'}]},'followup ordered context');
+        equal(items.length,5,'standard history length');
+      }
+      if(['legacy_read','standard_read'].includes(id)){
         structure(translated.reasoning,{effort:'low'},'retain-all followup effort');
         structure(wires.at(-1).body.context_management,body.context_management,'retain-all followup SDK serialization');
         actual.contextBuilder={name:'_Bn',value:body.context_management,turns:2};

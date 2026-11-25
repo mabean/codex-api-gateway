@@ -1,6 +1,6 @@
 # Codex translation contract — 2026-11-21
 
-Status: implemented local P4 evidence, pending independent acceptance. Source: official Claude Code 2.1.329 macOS arm64, binary SHA-256 `8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550`. Gateway base: `e0de077`. The immutable original gateway SHA-256 is `9bcc4283294a5f555551d1b1c52508355b544fb85671386cb157be6d5d8a99dc`.
+Status: historical local P4 evidence, pending independent acceptance at the time of recording. The mid-history refusal described below is superseded by [2026-11-25 standard-mode verification](claude-code-standard-mode-verification-2026-11-25.md); the current harness has 32 cases. Source: official Claude Code 2.1.329 macOS arm64, binary SHA-256 `8c1729568b19cdadedd0a978bf692f9f279ef554c8a333c4e132b94fd8725550`. Gateway base: `e0de077`. The immutable original gateway SHA-256 is `9bcc4283294a5f555551d1b1c52508355b544fb85671386cb157be6d5d8a99dc`.
 
 Reproduce with the [BUILD command](../BUILD.md#offline-positive-codex-translation-contract-p4), [runner](../scripts/claude_contract_p4.py), [31 ordered cases](../scripts/fixtures/claude_contract/p4_cases.json) and [pinned raw-byte manifest](../scripts/fixtures/claude_contract/2.1.329-macos-arm64-p4.json). Temporary results also bind the gateway and all harness files by SHA-256. Source ranges include module identity/hash, module-relative byte positions, absolute binary positions and raw-span hashes. Unknown builds, missing native imports and absent observations fail nonzero.
 

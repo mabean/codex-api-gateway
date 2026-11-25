@@ -1196,6 +1196,11 @@ impl ProxyServer {
         &self,
         mut anthropic_req: AnthropicMessagesRequest,
     ) -> Result<ChatCompletionsRequest, ProxyError> {
+        for message in &anthropic_req.messages {
+            if message.role == "system" {
+                codex_anthropic_system_content(&message.content)?;
+            }
+        }
         hoist_anthropic_system_messages(&mut anthropic_req);
         validate_anthropic_request(&anthropic_req)?;
         let mut messages = Vec::new();
@@ -1279,8 +1284,16 @@ impl ProxyServer {
         validate_chat_request(&chat_req)?;
         let mut input = Vec::new();
         let mut system_parts = Vec::new();
+        let mut saw_conversation = false;
         for msg in chat_req.messages {
             if msg.role == "system" {
+                if chat_req.anthropic_controls.is_some() && saw_conversation {
+                    input.push(ResponsesInputItem::UserMessage {
+                        role: "system".to_string(),
+                        content: codex_anthropic_system_content(&msg.content)?,
+                    });
+                    continue;
+                }
                 let content_text = flatten_message_content(&msg.content).map_err(|message| {
                     ProxyError::Validation {
                         message,
@@ -1290,6 +1303,7 @@ impl ProxyServer {
                 system_parts.push(content_text);
                 continue;
             }
+            saw_conversation = true;
             for normalized in normalize_chat_message(&msg)? {
                 match normalized {
                     NormalizedMessage::UserText(text) => {
@@ -2780,6 +2794,9 @@ fn strip_gateway_model_directive_from_content(content: &mut Value) -> Option<Str
 
 fn apply_gateway_model_directive(req: &mut AnthropicMessagesRequest) -> Option<String> {
     for message in &mut req.messages {
+        if message.role == "system" {
+            continue;
+        }
         if let Some(model) = strip_gateway_model_directive_from_content(&mut message.content) {
             return Some(model);
         }
@@ -2898,7 +2915,6 @@ fn prepare_codex_anthropic_body(body: &[u8]) -> Result<Vec<u8>, ProxyError> {
         .get_mut("messages")
         .and_then(Value::as_array_mut)
         .ok_or_else(|| invalid("messages", "missing message history"))?;
-    let mut saw_conversation = false;
     for message in messages.iter_mut() {
         if message["role"] == "system" {
             if message.get("clear_at").is_some() {
@@ -2909,19 +2925,12 @@ fn prepare_codex_anthropic_body(body: &[u8]) -> Result<Vec<u8>, ProxyError> {
                     effort = Some(value);
                 }
             }
-            let empty = message["content"].as_array().is_some_and(Vec::is_empty);
-            if saw_conversation && !empty {
-                return Err(invalid(
-                    "messages[].content",
-                    "system content inserted within conversation history",
-                ));
-            }
-            if empty {
+            codex_anthropic_system_content(&message["content"])?;
+            if message["content"].as_array().is_some_and(Vec::is_empty) {
                 message["content"] = json!("");
             }
             continue;
         }
-        saw_conversation = true;
         if message.get("output_config").is_some() || message.get("clear_at").is_some() {
             return Err(invalid("messages[]", "controls on non-system messages"));
         }
@@ -3033,10 +3042,12 @@ fn prepare_codex_anthropic_body(body: &[u8]) -> Result<Vec<u8>, ProxyError> {
 fn hoist_anthropic_system_messages(req: &mut AnthropicMessagesRequest) {
     let mut system = req.system.take();
     let mut messages = Vec::with_capacity(req.messages.len());
+    let mut saw_conversation = false;
     for message in req.messages.drain(..) {
-        if message.role == "system" {
+        if message.role == "system" && !saw_conversation {
             system = Some(append_anthropic_system_value(system, message.content));
         } else {
+            saw_conversation = true;
             messages.push(message);
         }
     }
@@ -3779,10 +3790,10 @@ fn validate_anthropic_request(req: &AnthropicMessagesRequest) -> Result<(), Prox
         });
     }
     for (idx, msg) in req.messages.iter().enumerate() {
-        if msg.role != "user" && msg.role != "assistant" {
+        if msg.role != "user" && msg.role != "assistant" && msg.role != "system" {
             return Err(ProxyError::Validation {
                 message: format!(
-                    "anthropic messages role must be 'user' or 'assistant'; received {:?}",
+                    "anthropic messages role must be 'user', 'assistant' or 'system'; received {:?}",
                     msg.role
                 ),
                 field: Some(format!("messages[{}].role", idx)),
@@ -3790,6 +3801,39 @@ fn validate_anthropic_request(req: &AnthropicMessagesRequest) -> Result<(), Prox
         }
     }
     Ok(())
+}
+
+// Preserve each ordered text block without applying global-prompt normalization.
+// Cache annotations are accepted as metadata, with no Codex caching guarantee.
+fn codex_anthropic_system_content(content: &Value) -> Result<Vec<InputContentItem>, ProxyError> {
+    let invalid = || ProxyError::Validation {
+        message: "Codex translation requires non-temporary system text blocks".to_string(),
+        field: Some("messages[].content".to_string()),
+    };
+    match content {
+        Value::String(text) => Ok(vec![InputContentItem::InputText { text: text.clone() }]),
+        Value::Array(blocks) => blocks
+            .iter()
+            .map(|block| {
+                let object = block.as_object().ok_or_else(invalid)?;
+                if object.get("type").and_then(Value::as_str) != Some("text")
+                    || object
+                        .keys()
+                        .any(|key| !["type", "text", "cache_control"].contains(&key.as_str()))
+                {
+                    return Err(invalid());
+                }
+                let text = object
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or_else(invalid)?;
+                Ok(InputContentItem::InputText {
+                    text: text.to_string(),
+                })
+            })
+            .collect(),
+        _ => Err(invalid()),
+    }
 }
 
 fn flatten_message_content(content: &Value) -> std::result::Result<String, String> {

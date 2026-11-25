@@ -15,7 +15,7 @@ class P4Controls(unittest.TestCase):
         self.cases = json.loads(p4.CASES.read_text())['cases']
 
     def test_all_positive_cases_required_in_order(self):
-        self.assertEqual(len(p4.validate_cases(self.cases)),31)
+        self.assertEqual(len(p4.validate_cases(self.cases)),32)
         for mutation in ('missing','reorder','duplicate','expectation'):
             cases = copy.deepcopy(self.cases)
             if mutation == 'missing': cases.pop()

@@ -56,7 +56,7 @@ def result_text(content):
     return ''
 
 
-def validate_claude_tools(parsed, scenario, work, marker):
+def validate_claude_tools(parsed, scenario, work, marker, challenge):
     """Require evidence from matching successful tool results in execution order."""
     calls = {}
     stage = 0
@@ -93,16 +93,25 @@ def validate_claude_tools(parsed, scenario, work, marker):
                 if scenario == 'bash':
                     verified |= marker in text
                 elif stage == 0:
+                    if not challenge or challenge in text:
+                        raise CheckFailure('first target Read disclosed the read-back challenge')
                     stage = 1
                 elif stage == 1:
                     stage = 2
-                elif marker in text:
+                elif marker in text and challenge in text:
                     verified = True
     if not verified:
-        raise CheckFailure('missing successful target Read/Edit/Read read-back with marker'
+        raise CheckFailure('missing successful target Read/Edit/Read read-back with both values'
                            if scenario == 'edit-read' else 'Bash result lacks command output marker')
-    if scenario == 'edit-read' and (work / 'note.txt').read_text().strip() != marker:
-        raise CheckFailure('Edit did not update the file')
+    if scenario == 'edit-read':
+        expected = marker + '\n' + challenge
+        if (work / 'note.txt').read_text().strip() != expected:
+            raise CheckFailure('file does not contain the expected two lines')
+        terminal = [event for event in parsed if event.get('type') == 'result']
+        if (not terminal or terminal[-1].get('is_error') or
+                terminal[-1].get('subtype') != 'success' or
+                terminal[-1].get('result', '').strip() != expected):
+            raise CheckFailure('successful terminal answer does not contain the exact two lines')
 
 
 class Suite:
@@ -312,9 +321,11 @@ class Suite:
         work = self.directory / model / scenario
         work.mkdir(parents=True)
         marker = 'CLAUDE_' + secrets.token_hex(6)
+        challenge = ''
         if scenario == 'edit-read':
-            (work / 'note.txt').write_text('before\n')
-            prompt = f'Use Read to inspect note.txt, then Edit to replace before with {marker}. Use Read again to verify the changed file. Reply with its exact contents.'
+            challenge = 'READBACK_' + secrets.token_hex(12)
+            (work / 'note.txt').write_text('before\n' + challenge + '\n')
+            prompt = f'Use Read with file_path="note.txt", offset=1 and limit=1 to inspect only the first line. Then use Edit to replace before with {marker}, preserving the second line. After Edit completes, use a separate Read with offset=1 and limit=2 to read both lines of note.txt. Reply with exactly those two lines, including the previously unseen second-line code, after completing that Read.'
         else:
             prompt = f'Use Bash to run printf {marker}. Reply with exactly the command output.'
         env = dict(os.environ, ANTHROPIC_BASE_URL=self.base, ANTHROPIC_API_KEY='local-proxy',
@@ -347,7 +358,7 @@ class Suite:
             raise CheckFailure(f'Claude Code exit={code}; ' + safe_error(json.dumps({'error': {'message': ' '.join(errors)}})))
         if marker not in terminal[-1].get('result', ''):
             raise CheckFailure('missing terminal marker')
-        validate_claude_tools(parsed, scenario, work, marker)
+        validate_claude_tools(parsed, scenario, work, marker, challenge)
 
     @contextlib.contextmanager
     def gateway(self, overrides=None):

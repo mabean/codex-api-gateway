@@ -22,7 +22,7 @@ from claude_contract_p2 import require, sse_event, verify_inventory as verify_p2
 FIXTURES = ROOT/'scripts/fixtures/claude_contract'
 PROFILE = FIXTURES/'2.1.329-macos-arm64-p4.json'
 CASES = FIXTURES/'p4_cases.json'
-CASE_IDS = ['effort_'+x for x in ('low','medium','high','xhigh','override','only','followup','absent')] + ['scope_first','scope_followup','mid_history','bad_effort','max_effort','format','context','format_context','unknown_output','choice_auto','choice_none','choice_any','choice_named','choice_parallel','choice_parallel_false','choice_bad','choice_unavailable','choice_malformed','discovery_chain','legacy_read','unsupported_reference','undeclared_reference','unrelated_reference']
+CASE_IDS = ['effort_'+x for x in ('low','medium','high','xhigh','override','only','followup','absent')] + ['scope_first','scope_followup','mid_history','bad_effort','max_effort','format','context','format_context','unknown_output','choice_auto','choice_none','choice_any','choice_named','choice_parallel','choice_parallel_false','choice_bad','choice_unavailable','choice_malformed','discovery_chain','legacy_read','standard_read','unsupported_reference','undeclared_reference','unrelated_reference']
 
 
 def validate_cases(cases):

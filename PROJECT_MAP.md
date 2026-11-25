@@ -15,6 +15,7 @@ Use this index to find documentation and implementation entrypoints. Open only t
 | Review the Terra and Haiku catalog update | [2026-11-02 catalog verification](docs/model-verification-2026-11-02.md) |
 | Review earlier local approval, live results, and remaining blockers | [2026-10-05 verification](docs/model-verification-2026-10-05.md) |
 | Review Claude Code 2.1.289 request changes and mock compatibility | [2026-10-05 protocol comparison](docs/claude-code-protocol-2026-10-05.md) |
+| Review ordered Claude Code standard-mode system context and verification limits | [2026-11-25 standard-mode verification](docs/claude-code-standard-mode-verification-2026-11-25.md) |
 | Run the offline extracted Claude Code SDK contract and inspect its limits | [P1 verification](docs/claude-code-p1-verification-2026-11-20.md), [runner](scripts/claude_contract_p1.py) |
 | Verify native Responses incremental SSE, terminal outcomes, cancellation and retry offline | [C1 verification](docs/codex-responses-c1-verification-2026-11-23.md), [runner](scripts/codex_responses_c1.py), [cases](scripts/fixtures/codex_responses/c1_cases.json) |
 | Verify native Responses request validation, function replay and configured URL normalization offline | [C3 verification](docs/codex-responses-c3-verification-2026-11-24.md), [runner](scripts/codex_responses_c3.py), [cases](scripts/fixtures/codex_responses/c3_cases.json) |

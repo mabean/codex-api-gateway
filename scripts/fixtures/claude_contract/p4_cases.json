@@ -42,7 +42,7 @@
     },
     {
       "id": "mid_history",
-      "expected": "Explicit terminal structured refusal without upstream traffic"
+      "expected": "Original SXn non-temporary mid-history system text retains ordered role:system authority in Codex input"
     },
     {
       "id": "bad_effort",
@@ -111,6 +111,10 @@
     {
       "id": "legacy_read",
       "expected": "Original _Bn retain-all context setting and low effort allow legacy Read first and followup turns, correlated result and terminal text"
+    },
+    {
+      "id": "standard_read",
+      "expected": "Ordered ordinary CLI system blocks before and after correlated Read result survive original SDK first/followup serialization and Codex translation"
     },
     {
       "id": "unsupported_reference",

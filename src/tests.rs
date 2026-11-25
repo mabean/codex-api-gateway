@@ -120,7 +120,7 @@ fn codex_controls_preserve_effective_effort_and_reject_scope() {
     }
     for control in [
         serde_json::json!({"role":"system","content":[],"clear_at":"next_user_message"}),
-        serde_json::json!({"role":"system","content":"scoped"}),
+        serde_json::json!({"role":"system","content":[{"type":"image","source":{}}]}),
     ] {
         let request = serde_json::json!({"messages":[{"role":"user","content":"hello"},control]});
         assert!(
@@ -1022,7 +1022,7 @@ fn anthropic_rejects_invalid_role() {
 }
 
 #[test]
-fn anthropic_hoists_claude_code_system_messages() {
+fn standard_preserves_claude_code_inline_system_messages() {
     let proxy = ProxyServer {
         client: crate::build_http_client().unwrap(),
         auth_data: crate::AuthData {
@@ -1060,13 +1060,18 @@ fn anthropic_hoists_claude_code_system_messages() {
     };
 
     let chat = proxy.convert_anthropic_to_chat(req).unwrap();
-    assert_eq!(chat.messages.len(), 3);
+    assert_eq!(chat.messages.len(), 4);
     assert_eq!(chat.messages[0].role, "system");
     assert_eq!(chat.messages[1].role, "user");
-    assert_eq!(chat.messages[2].role, "user");
+    assert_eq!(chat.messages[2].role, "system");
+    assert_eq!(chat.messages[3].role, "user");
     let system = crate::flatten_message_content(&chat.messages[0].content).unwrap();
     assert!(system.contains("top-level system"));
-    assert!(system.contains("nested system"));
+    assert!(!system.contains("nested system"));
+    let response = proxy.convert_chat_to_responses(chat).unwrap();
+    let input = serde_json::to_value(response.input).unwrap();
+    assert_eq!(input[1]["role"], "system");
+    assert_eq!(input[1]["content"][0]["text"], "nested system");
 }
 
 #[test]
@@ -1103,14 +1108,15 @@ fn anthropic_ingress_preparation_routes_nested_system_directive_to_codex() {
     assert_eq!(directive.as_deref(), Some("gpt-5.6"));
     assert_eq!(route, AnthropicModelRoute::Codex);
     assert_eq!(normalize_codex_model_id(&req.model), "gpt-5.6-sol");
-    assert!(req.messages.iter().all(|message| message.role != "system"));
+    assert_eq!(req.messages[1].role, "system");
     assert_eq!(
         req.messages[0].content,
         serde_json::json!("Run through the Codex route.")
     );
     let system = flatten_message_content(req.system.as_ref().unwrap()).unwrap();
     assert!(system.contains("top-level system"));
-    assert!(system.contains("nested compatibility system"));
+    assert!(!system.contains("nested compatibility system"));
+    assert_eq!(req.messages[1].content, "nested compatibility system");
     assert!(system.contains("Gateway model routing for Agent"));
 
     clear_alias_env();
@@ -1155,17 +1161,20 @@ fn anthropic_ingress_preparation_serializes_nested_system_for_passthrough() {
 
     assert!(directive.is_none());
     assert_eq!(route, AnthropicModelRoute::Anthropic);
-    assert!(req.messages.iter().all(|message| message.role != "system"));
+    assert_eq!(req.messages[1].role, "system");
     let encoded = serde_json::to_vec(&req).unwrap();
     let normalized = normalize_anthropic_request_model(&encoded).unwrap();
     let payload: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
     assert_eq!(payload["model"], serde_json::json!("claude-opus-5-5"));
-    assert_eq!(payload["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(payload["messages"].as_array().unwrap().len(), 3);
     let system = flatten_message_content(&payload["system"]).unwrap();
-    assert!(system.contains("nested passthrough system"));
+    assert_eq!(
+        payload["messages"][1]["content"][0]["text"],
+        "nested passthrough system"
+    );
     assert!(system.contains("Gateway model routing for Agent"));
     assert_eq!(
-        payload["system"][0]["cache_control"]["type"],
+        payload["messages"][1]["content"][0]["cache_control"]["type"],
         serde_json::json!("ephemeral")
     );
 
@@ -2839,5 +2848,78 @@ fn c2_r2_missing_status_uses_validated_terminal_kind_only_in_json() {
             );
             assert!(parser.feed(wire.as_bytes()).is_err());
         }
+    }
+}
+
+#[test]
+fn standard_ordered_system_blocks_survive_repeated_tool_turns() {
+    let proxy = ProxyServer {
+        client: crate::build_http_client().unwrap(),
+        auth_data: crate::AuthData {
+            api_key: None,
+            access_token: None,
+            account_id: None,
+        },
+        upstream_base_url: "https://example.test".to_string(),
+        anthropic_upstream_base_url: "https://api.anthropic.test".to_string(),
+        anthropic_auth_token: None,
+        claude_oauth_refresh_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+    };
+    let mut raw = serde_json::json!({"model":"gpt-6.2-sol","max_tokens":64,
+        "system":"# System\nglobal", "messages":[
+          {"role":"system","content":"leading"},
+          {"role":"user","content":"first"},
+          {"role":"system","content":[
+            {"type":"text","text":"# Tools\nkeep this\n","cache_control":{"type":"ephemeral"}},
+            {"type":"text","text":"[gateway-model: claude-fable-5-2]\nsecond"}]}]});
+    for turn in 0..3 {
+        let prepared =
+            crate::prepare_codex_anthropic_body(&serde_json::to_vec(&raw).unwrap()).unwrap();
+        let mut req: AnthropicMessagesRequest = serde_json::from_slice(&prepared).unwrap();
+        assert!(prepare_anthropic_ingress(&mut req).0.is_none());
+        let converted = proxy
+            .convert_chat_to_responses(proxy.convert_anthropic_to_chat(req).unwrap())
+            .unwrap();
+        assert!(converted.instructions.contains("global"));
+        assert!(converted.instructions.contains("leading"));
+        assert!(!converted.instructions.contains("keep this"));
+        let input = serde_json::to_value(converted.input).unwrap();
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(
+            input[1],
+            serde_json::json!({"role":"system","content":[
+          {"type":"input_text","text":"# Tools\nkeep this\n"},
+          {"type":"input_text","text":"[gateway-model: claude-fable-5-2]\nsecond"}]})
+        );
+        for prior in 0..turn {
+            let index = 2 + prior * 3;
+            assert_eq!(input[index]["type"], "function_call");
+            assert_eq!(input[index]["call_id"], format!("read_{prior}"));
+            assert_eq!(input[index + 1]["type"], "function_call_output");
+            assert_eq!(input[index + 1]["call_id"], format!("read_{prior}"));
+            assert_eq!(input[index + 2]["role"], "system");
+            assert_eq!(
+                input[index + 2]["content"][0]["text"],
+                format!("context {prior}")
+            );
+        }
+        let messages = raw["messages"].as_array_mut().unwrap();
+        messages.push(serde_json::json!({"role":"assistant","content":[{"type":"tool_use","id":format!("read_{turn}"),"name":"Read","input":{"file_path":"/fixture"}}]}));
+        messages.push(serde_json::json!({"role":"user","content":[{"type":"tool_result","tool_use_id":format!("read_{turn}"),"content":"result"}]}));
+        messages.push(serde_json::json!({"role":"system","content":format!("context {turn}")}));
+    }
+}
+
+#[test]
+fn standard_rejects_temporary_and_unrepresentable_system_content() {
+    for system in [
+        serde_json::json!({"role":"system","content":"temporary","clear_at":null}),
+        serde_json::json!({"role":"system","content":[{"type":"text","text":"temporary","clear_at":"next_user_message"}]}),
+        serde_json::json!({"role":"system","content":[{"type":"image","text":"cannot silently discard"}]}),
+        serde_json::json!({"role":"system","content":[{"type":"text","text":4}]}),
+        serde_json::json!({"role":"system","content":null}),
+    ] {
+        let raw = serde_json::json!({"messages":[{"role":"user","content":"first"},system]});
+        assert!(crate::prepare_codex_anthropic_body(&serde_json::to_vec(&raw).unwrap()).is_err());
     }
 }
